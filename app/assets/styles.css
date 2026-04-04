@@ -282,9 +282,17 @@ h1, h2, h3, .font-headline {
 
 .mm-user-profile {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.75rem;
     padding: 1rem 1.5rem;
+}
+
+.mm-user-profile-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
 }
 
 .mm-user-profile img {
@@ -303,6 +311,24 @@ h1, h2, h3, .font-headline {
 .mm-user-profile .role {
     font-size: 0.625rem;
     color: var(--on-secondary-container);
+}
+
+.mm-user-profile .studio {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--on-surface);
+    opacity: 0.85;
+}
+
+.mm-user-profile .bio {
+    font-size: 0.5625rem;
+    line-height: 1.35;
+    color: var(--on-secondary-container);
+    margin-top: 0.15rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 /* ============================================================

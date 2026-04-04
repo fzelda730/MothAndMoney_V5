@@ -6,9 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
-from data.sample_data import (
-    DASHBOARD_STATS, BANK_ACCOUNTS, TAX_PROVISION
-)
+from data.providers import bank_accounts, dashboard_stats, db_ready, tax_provision
 
 st.set_page_config(
     page_title="Dashboard | Moth and Money",
@@ -20,6 +18,13 @@ st.set_page_config(
 load_css()
 render_sidebar("dashboard")
 render_topbar()
+
+if not db_ready():
+    st.stop()
+
+DASHBOARD_STATS = dashboard_stats()
+BANK_ACCOUNTS = bank_accounts()
+TAX_PROVISION = tax_provision()
 
 # ── Main content ──────────────────────────────────────────────────────────────
 

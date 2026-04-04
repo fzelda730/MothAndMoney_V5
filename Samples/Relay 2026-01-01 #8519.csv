@@ -1,0 +1,15 @@
+Date,Payee,Account #,Transaction Type,Description,Reference,Status,Amount,Currency,Balance
+1/28/2026,JEANNE C. MINNERLY CPA #10033,,Spend,,"Tax Preparation - #53531 - Sent By Cathlene Fishman",SETTLED,-950.00,USD,590.06
+1/20/2026,MERCURY INS,,Spend,,"MERCURY INS  |  PAYMENT |  1000558591-7901 - Initiated By Unknown Payee",SETTLED,-403.66,USD,1540.06
+1/20/2026,UNITEDWHOLESALE,,Spend,,"UNITEDWHOLESALE  |  1 TIME DFT |  0159603190 - Initiated By Unknown Payee",SETTLED,-1526.12,USD,1943.72
+1/20/2026,CITY OF BANNING,,Spend,,"UTILITY - Initiated By Unknown Payee",SETTLED,-225.62,USD,3469.84
+1/16/2026,VENMO,,Spend,,"VENMO  |  PAYMENT |  1047631007801 - Initiated By Unknown Payee",SETTLED,-70.00,USD,3695.46
+1/16/2026,CHASE CREDIT CRD,,Spend,,"CHASE CREDIT CRD  |  EPAY |  9045081980 - Initiated By Unknown Payee",SETTLED,-38.96,USD,3765.46
+1/16/2026,SoCalGas,,Spend,,"SoCalGas  |  PAID SCGC |  1341530784 - Initiated By Unknown Payee",SETTLED,-63.27,USD,3804.42
+1/16/2026,GreenSky,,Spend,,"GreenSky  |  WEB PAY |  Greensky - Initiated By Unknown Payee",SETTLED,-238.02,USD,3867.69
+1/15/2026,CAPITAL ONE AUTO,,Spend,,"CAPITAL ONE AUTO  |  CARPAY |  CP0D2D213923412 - Initiated By Unknown Payee",SETTLED,-326.81,USD,4105.71
+1/15/2026,Psn Vault - 8499 - 20,8499,Receive-transfer,,"gas bill was higher than forecasted nov-dec",SETTLED,+30.00,USD,4432.52
+1/15/2026,Psn DayToDay - 4199,4199,Spend-transfer,,"Jan-Feb 2026 Daily Expenses",SETTLED,-700.00,USD,4402.52
+1/14/2026,Psn Vault - 8499 - 20,8499,Receive-transfer,,"Jan 2026 15th Gap Payment",SETTLED,+2500.00,USD,5102.52
+1/14/2026,Biz Income - 7861 - 100,7861,Receive-transfer,,"Jan 2026 SS to Personal",SETTLED,+2601.00,USD,2602.52
+1/7/2026,ClickPay,,Spend,,"410.003.00,HR3E4,7 - Initiated By Unknown Payee",SETTLED,-413.00,USD,1.52

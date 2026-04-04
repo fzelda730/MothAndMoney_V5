@@ -1,6 +1,9 @@
 import streamlit as st
 import sys
 from pathlib import Path
+from datetime import date
+
+import pandas as pd
 import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -8,9 +11,88 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
 from data.sample_data import (
-    PL_INCOME, PL_EXPENSES, PL_SUMMARY, QUARTERLY_PERFORMANCE,
-    BANK_ACCOUNTS, BALANCE_SHEET, CHART_OF_ACCOUNTS, TRIAL_BALANCE_REPORT
+    PL_INCOME,
+    PL_EXPENSES,
+    PL_SUMMARY,
+    QUARTERLY_PERFORMANCE,
+    BALANCE_SHEET,
+    REPORTS_FISCAL_YEAR_START,
+    REPORTS_FISCAL_YEAR_END,
+    SAMPLE_ACCOUNT_DETAIL,
 )
+from data.providers import bank_accounts, chart_of_accounts, db_ready, trial_balance_report
+
+
+def _normalize_period(d0, d1):
+    if d0 > d1:
+        return d1, d0
+    return d0, d1
+
+
+def reports_proration_factor(period_start, period_end):
+    """Share of FY 2024 overlapping the selected range (for demo P&L scaling)."""
+    period_start, period_end = _normalize_period(period_start, period_end)
+    fy_s, fy_e = REPORTS_FISCAL_YEAR_START, REPORTS_FISCAL_YEAR_END
+    fy_days = (fy_e - fy_s).days + 1
+    ov_s = max(period_start, fy_s)
+    ov_e = min(period_end, fy_e)
+    if ov_s > ov_e:
+        return 0.0, 0
+    overlap_days = (ov_e - ov_s).days + 1
+    return overlap_days / fy_days, overlap_days
+
+
+def format_period_header(d0, d1):
+    d0, d1 = _normalize_period(d0, d1)
+    return f"{d0.strftime('%b %d, %Y')} – {d1.strftime('%b %d, %Y')}"
+
+
+def quarterly_rows_for_period(period_start, period_end):
+    out = []
+    for q in QUARTERLY_PERFORMANCE:
+        ps, pe = q["period_start"], q["period_end"]
+        if ps <= period_end and pe >= period_start:
+            out.append(q)
+    return out
+
+
+def scale_amount(x, factor):
+    if x is None:
+        return None
+    return round(x * factor, 2)
+
+
+def filter_detail_lines(account_number, period_start, period_end):
+    period_start, period_end = _normalize_period(period_start, period_end)
+    rows = [
+        r for r in SAMPLE_ACCOUNT_DETAIL
+        if r["account_number"] == account_number
+        and period_start <= r["date"] <= period_end
+    ]
+    return sorted(rows, key=lambda r: r["date"])
+
+
+def render_account_drilldown(period_start, period_end, key_prefix, title="Account activity"):
+    nums = sorted({a["number"] for a in CHART_OF_ACCOUNTS}, key=lambda x: int(x))
+    labels = ["— Select account # —"] + [f"{n} — {next(a['name'] for a in CHART_OF_ACCOUNTS if a['number'] == n)}" for n in nums]
+    choice = st.selectbox(title, labels, key=f"{key_prefix}_acct")
+    if choice == labels[0]:
+        return
+    acct_num = choice.split(" — ", 1)[0].strip()
+    lines = filter_detail_lines(acct_num, period_start, period_end)
+    if not lines:
+        st.caption("No sample detail lines in this period for this account.")
+        return
+    df = pd.DataFrame(
+        {
+            "Date": [r["date"].strftime("%Y-%m-%d") for r in lines],
+            "Payee": [r["payee"] for r in lines],
+            "Memo": [r["memo"] for r in lines],
+            "Debit": [r["debit"] for r in lines],
+            "Credit": [r["credit"] for r in lines],
+        }
+    )
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
 st.set_page_config(
     page_title="Reports | Moth and Money",
@@ -23,17 +105,42 @@ load_css()
 render_sidebar("reports")
 render_topbar("Search data...")
 
+if not db_ready():
+    st.stop()
 
+BANK_ACCOUNTS = bank_accounts()
+CHART_OF_ACCOUNTS = chart_of_accounts()
+TRIAL_BALANCE_REPORT = trial_balance_report()
 
-# ── Account selector ──────────────────────────────────────────────────────────
+# ── Reporting period & bank account filter (demo data) ───────────────────────
 account_options = ["All Accounts"] + [
     f"{a['account_name']} ****{a['masked']}"
     for a in BANK_ACCOUNTS if a["account_type"] != "cash"
 ]
 
-st.html('<label class="mm-settings-label">Select Account</label>')
-selected_account = st.selectbox("report_account", account_options,
-                                 label_visibility="collapsed")
+col_bank, col_dates = st.columns([1, 1], gap="large")
+with col_bank:
+    st.html('<label class="mm-settings-label">Select Account</label>')
+    selected_account = st.selectbox(
+        "report_account", account_options, label_visibility="collapsed"
+    )
+with col_dates:
+    st.html('<label class="mm-settings-label">Reporting period</label>')
+    period_input = st.date_input(
+        "report_period",
+        value=(REPORTS_FISCAL_YEAR_START, REPORTS_FISCAL_YEAR_END),
+        min_value=date(2023, 1, 1),
+        max_value=date(2026, 12, 31),
+        label_visibility="collapsed",
+    )
+
+if isinstance(period_input, tuple) and len(period_input) == 2:
+    period_start, period_end = _normalize_period(period_input[0], period_input[1])
+else:
+    period_start = period_end = period_input
+
+period_label = format_period_header(period_start, period_end)
+pr_factor, overlap_days = reports_proration_factor(period_start, period_end)
 
 st.html("<div style='height:1rem'></div>")
 

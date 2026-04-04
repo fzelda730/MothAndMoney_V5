@@ -1,0 +1,11 @@
+Date,Payee,Account #,Transaction Type,Description,Reference,Status,Amount,Currency,Balance
+1/30/2026,Biz OpEx - 8483 - 25,8483,Spend-transfer,,"cover 1st payments",SETTLED,-240.00,USD,4342.00
+1/15/2026,Psn OpExp - 8519 - 80,8519,Spend-transfer,,"gas bill was higher than forecasted nov-dec",SETTLED,-30.00,USD,4582.00
+1/14/2026,Biz OpEx - 8483 - 25,8483,Spend-transfer,,"Jan 2026 15th Gap Payment",SETTLED,-60.00,USD,4612.00
+1/14/2026,Biz OpEx - 8483 - 25,8483,Spend-transfer,,"Jan 2026 15th Gap Payment",SETTLED,-1705.00,USD,4672.00
+1/14/2026,Psn OpExp - 8519 - 80,8519,Spend-transfer,,"Jan 2026 15th Gap Payment",SETTLED,-2500.00,USD,6377.00
+1/11/2026,Psn DayToDay - 4199,4199,Spend-transfer,,"Transfer",SETTLED,-100.00,USD,8877.00
+1/10/2026,Psn DayToDay - 4199,4199,Spend-transfer,,"Transfer",SETTLED,-50.00,USD,8977.00
+1/6/2026,Psn DayToDay - 4199,4199,Spend-transfer,,"Transfer",SETTLED,-100.00,USD,9027.00
+1/2/2026,Health net life insurance,,Receive,,"4/11/2025 One Time Pay",SETTLED,+7.00,USD,9127.00
+1/2/2026,Low stress training,,Receive,,"Referral Payment",SETTLED,+350.00,USD,9120.00

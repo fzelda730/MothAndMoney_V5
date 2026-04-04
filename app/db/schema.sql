@@ -53,6 +53,7 @@ CREATE TYPE coa_account_type_enum AS ENUM (
 CREATE TABLE studio_profile (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     artist_name         VARCHAR(255) NOT NULL DEFAULT 'Your Name',
+    artist_title        VARCHAR(255) NOT NULL DEFAULT 'Creative Director',
     studio_name         VARCHAR(255) NOT NULL DEFAULT 'Your Studio',
     bio                 TEXT,
     logo_url            TEXT,
@@ -68,10 +69,10 @@ CREATE TABLE studio_profile (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed one profile row on first run
+-- Seed one profile row on first run (idempotent re-apply of schema)
 INSERT INTO studio_profile (artist_name, studio_name)
-VALUES ('Julian Voss', 'The Digital Atelier')
-ON CONFLICT DO NOTHING;
+SELECT 'Julian Voss', 'The Digital Atelier'
+WHERE NOT EXISTS (SELECT 1 FROM studio_profile LIMIT 1);
 
 -- ============================================================
 -- CHART OF ACCOUNTS

@@ -1,0 +1,5 @@
+Date,Payee,Account #,Transaction Type,Description,Reference,Status,Amount,Currency,Balance
+1/30/2026,Psn Vault - 8499 - 20,8499,Receive-transfer,,"cover 1st payments",SETTLED,+240.00,USD,487.70
+1/16/2026,CAPITAL ONE,,Spend,,"ONLINE PMT - Initiated By Unknown Payee",SETTLED,-1518.22,USD,247.70
+1/14/2026,Psn Vault - 8499 - 20,8499,Receive-transfer,,"Jan 2026 15th Gap Payment",SETTLED,+60.00,USD,1765.92
+1/14/2026,Psn Vault - 8499 - 20,8499,Receive-transfer,,"Jan 2026 15th Gap Payment",SETTLED,+1705.00,USD,1705.92

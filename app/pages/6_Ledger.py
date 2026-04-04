@@ -7,7 +7,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
-from data.sample_data import LEDGER_TRANSACTIONS, LEDGER_SUMMARY, BANK_ACCOUNTS, IMPORT_TEMPLATES
+from data.providers import (
+    bank_accounts,
+    db_ready,
+    import_templates,
+    ledger_summary,
+    ledger_transactions,
+)
 
 st.set_page_config(
     page_title="Ledger | Moth and Money",
@@ -20,10 +26,48 @@ load_css()
 render_sidebar("ledger")
 render_topbar("Search entries...")
 
+if not db_ready():
+    st.stop()
 
+BANK_ACCOUNTS = bank_accounts()
+IMPORT_TEMPLATES = import_templates()
+
+account_options = [
+    f"{a['account_name']} ****{a['masked']}"
+    for a in BANK_ACCOUNTS if a["account_type"] != "cash"
+]
+
+if not account_options:
+    st.warning("No bank or card accounts found. Complete onboarding or set USE_SAMPLE_DATA=true.")
+    st.stop()
+
+
+def _acct_id_for_label(label: str):
+    for a in BANK_ACCOUNTS:
+        if f"{a['account_name']} ****{a['masked']}" == label:
+            return a["id"]
+    return None
+
+
+st.html("""
+<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+    <span class="material-symbols-outlined" style="font-size:0.9rem;color:#636262;">
+        account_balance
+    </span>
+    <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                 letter-spacing:0.1em;color:#636262;">Working On:</span>
+</div>
+""")
+selected_account = st.selectbox(
+    "working_account",
+    account_options,
+    label_visibility="collapsed",
+)
+aid = _acct_id_for_label(selected_account)
+s = ledger_summary(aid)
+ledger_txns = ledger_transactions(aid)
 
 # ── Balance summary bar ───────────────────────────────────────────────────────
-s = LEDGER_SUMMARY
 st.html(f"""
 <div class="mm-balance-bar">
     <div class="mm-balance-item">
@@ -56,29 +100,6 @@ st.html("<div style='height:1.5rem'></div>")
 col_upload, col_template = st.columns([1.5, 1], gap="large")
 
 with col_upload:
-    # Account selector
-    account_options = [
-        f"{a['account_name']} ****{a['masked']}"
-        for a in BANK_ACCOUNTS if a["account_type"] != "cash"
-    ]
-    st.html("""
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
-        <span class="material-symbols-outlined" style="font-size:0.9rem;color:#636262;">
-            account_balance
-        </span>
-        <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                     letter-spacing:0.1em;color:#636262;">Working On:</span>
-    </div>
-    """)
-
-    selected_account = st.selectbox(
-        "working_account",
-        account_options,
-        label_visibility="collapsed",
-    )
-
-    st.html("<div style='height:0.75rem'></div>")
-
     uploaded = st.file_uploader(
         "Upload Bank or Credit Card Statement",
         type=["csv", "ofx"],
@@ -154,7 +175,7 @@ st.html("<div style='height:0.75rem'></div>")
 
 # Transaction rows
 rows_html = ""
-for txn in LEDGER_TRANSACTIONS:
+for txn in ledger_txns:
     deb_str = f"${txn['debit']:,.2f}"  if txn["debit"]   else "—"
     crd_str = f"${txn['credit']:,.2f}" if txn["credit"]  else "—"
     deb_color = "#1a1c1c" if txn["debit"] else "#c2c9bb"

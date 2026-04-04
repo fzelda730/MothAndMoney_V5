@@ -1,13 +1,13 @@
 import streamlit as st
 import sys
 from pathlib import Path
-import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
-from data.sample_data import TRIAL_BALANCE_IMPORT_PREVIEW, TRIAL_BALANCE_TOTALS
+from data.providers import db_ready, discard_pending_trial_balance, trial_balance_import
+from db.connection import use_sample_data
 
 st.set_page_config(
     page_title="Trial Balance | Moth and Money",
@@ -16,11 +16,49 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+COL_MAP_FIELDS = {
+    "Bank Account": ["Account_No", "BankAccount", "Account", "Ref"],
+    "Chart of Account": ["COA_Code", "AccountCode", "GL_Code", "Category"],
+    "Chart of Account Description": [
+        "COA_Description",
+        "Account_Name",
+        "AccountName",
+        "Description",
+        "GL_Name",
+        "Category_Description",
+    ],
+    "Debits": ["Debit_Val", "Debit", "DR", "Amount_DR"],
+    "Credits": ["Credit_Val", "Credit", "CR", "Amount_CR"],
+}
+
+
+def _empty_tb_totals() -> dict:
+    return {
+        "total_debits": 0.0,
+        "total_credits": 0.0,
+        "is_balanced": False,
+        "variance": 0.0,
+    }
+
+
 load_css()
 render_sidebar("onboarding")
 render_topbar()
 
+if not db_ready():
+    st.stop()
 
+if not use_sample_data():
+    st.session_state.pop("tb_import_cleared", None)
+
+if st.session_state.pop("tb_discard_done", False):
+    st.success(st.session_state.pop("tb_discard_msg", "Import discarded."))
+
+if st.session_state.get("tb_import_cleared") and use_sample_data():
+    TRIAL_BALANCE_IMPORT_PREVIEW = []
+    TRIAL_BALANCE_TOTALS = _empty_tb_totals()
+else:
+    TRIAL_BALANCE_IMPORT_PREVIEW, TRIAL_BALANCE_TOTALS = trial_balance_import()
 
 # ── Breadcrumb ────────────────────────────────────────────────────────────────
 st.html("""
@@ -40,13 +78,51 @@ st.html("""
 </p>
 """)
 
+if st.session_state.get("tb_discard_confirm"):
+    st.warning(
+        "Discard this import? Pending trial balance rows will be removed from the database "
+        "(confirmed entries are kept). Your reference name, file selection, and column mapping "
+        "will be reset."
+    )
+    c_yes, c_no = st.columns(2)
+    with c_yes:
+        if st.button("Yes, discard", key="tb_yes_discard", type="primary"):
+            n = discard_pending_trial_balance()
+            st.session_state["tb_discard_confirm"] = False
+            st.session_state["tb_uploader_nonce"] = st.session_state.get("tb_uploader_nonce", 0) + 1
+            st.session_state.pop("tb_ref_name", None)
+            for field in COL_MAP_FIELDS:
+                st.session_state.pop(f"tb_map_{field}", None)
+            if use_sample_data():
+                st.session_state["tb_import_cleared"] = True
+            st.session_state.pop("tb_file_name", None)
+            if use_sample_data():
+                st.session_state["tb_discard_msg"] = "Demo import cleared. Form reset."
+            elif n:
+                st.session_state["tb_discard_msg"] = f"Discarded {n} pending row(s). Form reset."
+            else:
+                st.session_state["tb_discard_msg"] = (
+                    "No pending rows in the database. Form reset."
+                )
+            st.session_state["tb_discard_done"] = True
+            st.rerun()
+    with c_no:
+        if st.button("Cancel", key="tb_cancel_discard"):
+            st.session_state["tb_discard_confirm"] = False
+            st.rerun()
+    st.html("<div style='height:1rem'></div>")
+
 col_left, col_right = st.columns([1, 1.5], gap="large")
 
 # ── Left: Upload & Column Mapping ─────────────────────────────────────────────
 with col_left:
     st.html('<label class="mm-settings-label">Balance Reference Name</label>')
-    ref_name = st.text_input("ref_name", placeholder="e.g. FY24 Opening Balance",
-                             label_visibility="collapsed")
+    ref_name = st.text_input(
+        "ref_name",
+        placeholder="e.g. FY24 Opening Balance",
+        label_visibility="collapsed",
+        key="tb_ref_name",
+    )
     st.caption("This name will be used to identify this entry in your Ledger audit trail.")
 
     st.html("<div style='height:1rem'></div>")
@@ -56,29 +132,24 @@ with col_left:
         type=["csv"],
         help="Ensure your file includes bank accounts, COA numbers, and clear debit/credit columns.",
         label_visibility="visible",
+        key=f"tb_upload_{st.session_state.get('tb_uploader_nonce', 0)}",
     )
 
     if uploaded is not None:
+        st.session_state["tb_import_cleared"] = False
+        st.session_state["tb_file_name"] = uploaded.name
         st.success(f"File loaded: {uploaded.name}")
 
     st.html("<div style='height:1.5rem'></div>")
 
-    # Column mapping
     st.html("""
     <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1rem;
                margin-bottom:1.25rem;">Column Mapping</h4>
     """)
 
-    col_map_fields = {
-        "Bank Account":      ["Account_No", "BankAccount", "Account", "Ref"],
-        "Chart of Account":  ["COA_Code", "AccountCode", "GL_Code", "Category"],
-        "Debits":            ["Debit_Val", "Debit", "DR", "Amount_DR"],
-        "Credits":           ["Credit_Val", "Credit", "CR", "Amount_CR"],
-    }
-
-    for field, options in col_map_fields.items():
+    for field, options in COL_MAP_FIELDS.items():
         st.html(f'<label class="mm-settings-label">{field}</label>')
-        st.selectbox(f"map_{field}", options, label_visibility="collapsed")
+        st.selectbox(f"map_{field}", options, label_visibility="collapsed", key=f"tb_map_{field}")
         st.html("<div style='height:0.25rem'></div>")
 
 # ── Right: Import Preview ─────────────────────────────────────────────────────
@@ -86,6 +157,8 @@ with col_right:
     total_deb = TRIAL_BALANCE_TOTALS["total_debits"]
     total_crd = TRIAL_BALANCE_TOTALS["total_credits"]
     is_balanced = TRIAL_BALANCE_TOTALS["is_balanced"]
+    n_preview = len(TRIAL_BALANCE_IMPORT_PREVIEW)
+    can_confirm = is_balanced and n_preview > 0
 
     balanced_badge = (
         '<span style="background:#bcf0ae;color:#154212;font-size:0.65rem;font-weight:700;'
@@ -97,6 +170,12 @@ with col_right:
         'border-radius:0.75rem;">● Unbalanced</span>'
     )
 
+    _fn = st.session_state.get("tb_file_name") or "your CSV"
+    if n_preview == 0:
+        preview_caption = "No rows loaded yet. Upload a CSV or load data into the database."
+    else:
+        preview_caption = f"Displaying {n_preview} entries from {_fn}"
+
     st.html(f"""
     <div style="display:flex;justify-content:space-between;align-items:center;
                 margin-bottom:0.75rem;">
@@ -106,7 +185,7 @@ with col_right:
         {balanced_badge}
     </div>
     <p style="font-size:0.7rem;color:#636262;margin-bottom:1rem;">
-        Displaying 12 entries from trial_balance_june.csv
+        {preview_caption}
     </p>
     """)
 
@@ -118,11 +197,11 @@ with col_right:
         if row["error"]:
             row_style = "background:#fff0f0;"
             bank_style = "color:#ba1a1a;font-weight:700;"
-            coa_style  = "color:#ba1a1a;"
+            coa_style = "color:#ba1a1a;"
         else:
             row_style = "background:#ffffff;"
             bank_style = "font-size:0.8rem;"
-            coa_style  = "color:#636262;font-size:0.8rem;"
+            coa_style = "color:#636262;font-size:0.8rem;"
 
         rows_html += f"""
         <tr style="{row_style}">
@@ -195,7 +274,7 @@ with col_right:
 
     st.html("<div style='height:1rem'></div>")
 
-    if is_balanced:
+    if is_balanced and n_preview > 0:
         st.html("""
         <div style="display:flex;align-items:center;gap:0.75rem;padding:1rem;
                     background:#f0fdf4;border-radius:0.25rem;margin-bottom:1rem;">
@@ -214,10 +293,15 @@ with col_right:
     col_discard, col_confirm = st.columns([1, 2], gap="small")
     with col_discard:
         if st.button("Discard", key="discard_tb"):
+            st.session_state["tb_discard_confirm"] = True
             st.rerun()
     with col_confirm:
-        if st.button("Confirm & Save Entry →", key="confirm_tb",
-                     type="primary", disabled=not is_balanced):
+        if st.button(
+            "Confirm & Save Entry →",
+            key="confirm_tb",
+            type="primary",
+            disabled=not can_confirm,
+        ):
             st.success("Trial balance confirmed and saved.")
             st.switch_page("pages/4_Bank_Statement_Template.py")
 
@@ -244,4 +328,3 @@ st.html("""
     </div>
 </div>
 """)
-

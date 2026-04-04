@@ -3,21 +3,34 @@ Sample placeholder data for Moth and Money V4.
 All data is fictional and for UI demonstration only.
 """
 
+from datetime import date
+
+# ============================================================
+# REPORTS — fiscal window for proration and quarterly bounds
+# ============================================================
+
+REPORTS_FISCAL_YEAR_START = date(2024, 1, 1)
+REPORTS_FISCAL_YEAR_END = date(2024, 12, 31)
+
 # ============================================================
 # STUDIO PROFILE
 # ============================================================
 
 STUDIO = {
     "artist_name":      "Julian Voss",
+    "artist_title":     "Creative Director",
     "studio_name":      "The Verdant Atelier",
     "bio":              "A focused space for organic sculpture and ecological installations, "
                         "balancing fine art with financial integrity.",
+    "logo_url":         "",
     "email":            "julian@theatelier.com",
     "tax_id":           "XX-882104-Z",
     "base_currency":    "USD",
     "fiscal_year_start":"January",
     "default_tax_rate": 8.5,
     "accounting_method":"Cash",
+    "theme_preference": "light",
+    "compact_ui":       False,
 }
 
 # ============================================================
@@ -227,10 +240,77 @@ PL_SUMMARY = {
 }
 
 QUARTERLY_PERFORMANCE = [
-    {"quarter": "Q1 2024", "revenue": 54200,  "projected": False},
-    {"quarter": "Q2 2024", "revenue": 48150,  "projected": False},
-    {"quarter": "Q3 2024", "revenue": 62800,  "projected": False},
-    {"quarter": "Q4 2024", "revenue": 63490,  "projected": True},
+    {
+        "quarter": "Q1 2024", "revenue": 54200, "projected": False,
+        "period_start": date(2024, 1, 1), "period_end": date(2024, 3, 31),
+    },
+    {
+        "quarter": "Q2 2024", "revenue": 48150, "projected": False,
+        "period_start": date(2024, 4, 1), "period_end": date(2024, 6, 30),
+    },
+    {
+        "quarter": "Q3 2024", "revenue": 62800, "projected": False,
+        "period_start": date(2024, 7, 1), "period_end": date(2024, 9, 30),
+    },
+    {
+        "quarter": "Q4 2024", "revenue": 63490, "projected": True,
+        "period_start": date(2024, 10, 1), "period_end": date(2024, 12, 31),
+    },
+]
+
+# ============================================================
+# GL-style detail lines (for Reports drill-down; demo only)
+# ============================================================
+
+SAMPLE_ACCOUNT_DETAIL = [
+    {
+        "account_number": "1100", "date": date(2024, 2, 3), "payee": "Wire — Opening",
+        "memo": "Seed transfer", "debit": 5000.00, "credit": None,
+    },
+    {
+        "account_number": "1100", "date": date(2024, 5, 18), "payee": "Client check",
+        "memo": "Inv #1042", "debit": 2450.00, "credit": None,
+    },
+    {
+        "account_number": "1100", "date": date(2024, 8, 1), "payee": "Cash deposit",
+        "memo": "Show sales", "debit": 1200.00, "credit": None,
+    },
+    {
+        "account_number": "1200", "date": date(2024, 3, 10), "payee": "Gallery Net 30",
+        "memo": "Invoice accrual", "debit": 3200.00, "credit": None,
+    },
+    {
+        "account_number": "1200", "date": date(2024, 6, 22), "payee": "Partial payment",
+        "memo": "Wire", "debit": None, "credit": 1000.00,
+    },
+    {
+        "account_number": "4100", "date": date(2024, 3, 15), "payee": "Gallery A",
+        "memo": "Opening reception sales", "debit": None, "credit": 12000.00,
+    },
+    {
+        "account_number": "4100", "date": date(2024, 7, 8), "payee": "Direct sale",
+        "memo": "Studio pickup", "debit": None, "credit": 8500.00,
+    },
+    {
+        "account_number": "4200", "date": date(2024, 4, 2), "payee": "Shopify payout",
+        "memo": "Period close", "debit": None, "credit": 15400.00,
+    },
+    {
+        "account_number": "5100", "date": date(2024, 1, 5), "payee": "Studio Rental Corp",
+        "memo": "January rent", "debit": 6000.00, "credit": None,
+    },
+    {
+        "account_number": "5100", "date": date(2024, 4, 5), "payee": "Studio Rental Corp",
+        "memo": "Q2 rent batch", "debit": 18000.00, "credit": None,
+    },
+    {
+        "account_number": "5200", "date": date(2024, 5, 12), "payee": "The Canvas Depot",
+        "memo": "Silk bolts", "debit": 2100.00, "credit": None,
+    },
+    {
+        "account_number": "2100", "date": date(2024, 2, 20), "payee": "Vendor statement",
+        "memo": "AP aging", "debit": None, "credit": 4100.00,
+    },
 ]
 
 # Balance Sheet (simplified cash-basis)
@@ -250,11 +330,26 @@ BALANCE_SHEET = {
 
 # Trial Balance (for Reports tab)
 TRIAL_BALANCE_REPORT = [
-    {"bank_account": "1020-4492-001", "coa": "1100 - Cash",         "debits": 12450.00, "credits": None},
-    {"bank_account": "1020-4492-001", "coa": "1200 - Receivables",  "debits": 4200.50,  "credits": None},
-    {"bank_account": "9901-3321-882", "coa": "2100 - Payables",     "debits": None,     "credits": 8100.00},
-    {"bank_account": "9901-3321-882", "coa": "3100 - Equity",       "debits": None,     "credits": 5000.00},
-    {"bank_account": "1020-4492-001", "coa": "4100 - Sales",        "debits": None,     "credits": 3550.50},
+    {
+        "bank_account": "1020-4492-001", "coa_number": "1100",
+        "coa": "1100 - Cash", "debits": 12450.00, "credits": None,
+    },
+    {
+        "bank_account": "1020-4492-001", "coa_number": "1200",
+        "coa": "1200 - Receivables", "debits": 4200.50, "credits": None,
+    },
+    {
+        "bank_account": "9901-3321-882", "coa_number": "2100",
+        "coa": "2100 - Payables", "debits": None, "credits": 8100.00,
+    },
+    {
+        "bank_account": "9901-3321-882", "coa_number": "3100",
+        "coa": "3100 - Equity", "debits": None, "credits": 5000.00,
+    },
+    {
+        "bank_account": "1020-4492-001", "coa_number": "4100",
+        "coa": "4100 - Sales", "debits": None, "credits": 3550.50,
+    },
 ]
 
 # ============================================================
