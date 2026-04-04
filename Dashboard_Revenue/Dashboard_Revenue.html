@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Moth and Money V4 | The Digital Atelier</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "secondary": "#5f5e5e",
+                "tertiary-fixed": "#ffdad8",
+                "tertiary-container": "#902d31",
+                "tertiary-fixed-dim": "#ffb3b1",
+                "on-primary-container": "#9dd090",
+                "primary-container": "#2d5a27",
+                "on-secondary-fixed-variant": "#474746",
+                "on-error": "#ffffff",
+                "primary-fixed": "#bcf0ae",
+                "secondary-fixed-dim": "#c8c6c5",
+                "surface-container-lowest": "#ffffff",
+                "inverse-surface": "#2f3131",
+                "on-tertiary-fixed": "#410007",
+                "on-secondary": "#ffffff",
+                "on-error-container": "#93000a",
+                "surface": "#f9f9f9",
+                "inverse-on-surface": "#f1f1f1",
+                "surface-bright": "#f9f9f9",
+                "primary-fixed-dim": "#a1d494",
+                "on-surface": "#1a1c1c",
+                "on-tertiary-container": "#ffaeac",
+                "tertiary": "#71151d",
+                "on-tertiary-fixed-variant": "#832329",
+                "outline": "#72796e",
+                "surface-container": "#eeeeee",
+                "on-primary": "#ffffff",
+                "on-primary-fixed": "#002201",
+                "surface-tint": "#3b6934",
+                "surface-container-high": "#e8e8e8",
+                "secondary-fixed": "#e5e2e1",
+                "primary": "#154212",
+                "on-tertiary": "#ffffff",
+                "surface-container-low": "#f3f3f3",
+                "on-primary-fixed-variant": "#23501e",
+                "surface-dim": "#dadada",
+                "inverse-primary": "#a1d494",
+                "surface-container-highest": "#e2e2e2",
+                "secondary-container": "#e2dfde",
+                "background": "#f9f9f9",
+                "error": "#ba1a1a",
+                "on-background": "#1a1c1c",
+                "error-container": "#ffdad6",
+                "on-secondary-fixed": "#1c1b1b",
+                "outline-variant": "#c2c9bb",
+                "surface-variant": "#e2e2e2",
+                "on-surface-variant": "#42493e",
+                "on-secondary-container": "#636262"
+              },
+              fontFamily: {
+                "headline": ["Manrope"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+              },
+              borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+            },
+          },
+        }
+      </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .active-nav-fill .material-symbols-outlined {
+            font-variation-settings: 'FILL' 1;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+      </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar Component -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-none bg-surface-container-low flex flex-col py-8 gap-4 font-['Manrope'] antialiased tracking-tight">
+<div class="px-6 mb-8">
+<h1 class="text-lg font-bold text-[#1a1a1a] dark:text-slate-100">Moth and Money V4</h1>
+<p class="text-xs text-on-secondary-container opacity-70">The Digital Atelier</p>
+</div>
+<nav class="flex-1 space-y-1">
+<!-- Active Tab: Dashboard -->
+<a class="bg-[#a1d494] text-[#154212] rounded-md mx-2 px-4 py-2 font-semibold shadow-sm flex items-center gap-3 transition-transform active:scale-95 active:opacity-90 active-nav-fill" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="how_to_reg">how_to_reg</span>
+<span>Onboarding</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="menu_book">menu_book</span>
+<span>Ledger</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Reports</span>
+</a>
+</nav>
+<div class="px-4 mb-4">
+<button class="w-full bg-primary text-on-primary py-3 px-4 rounded-sm flex items-center justify-center gap-2 font-medium transition-all hover:opacity-90 active:scale-95">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Entry
+            </button>
+</div>
+<div class="mt-auto border-t border-outline-variant/10 pt-4 space-y-1">
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Support</span>
+</a>
+<div class="mt-4 px-6 flex items-center gap-3">
+<img alt="Artist Studio Profile" class="w-8 h-8 rounded-full object-cover" data-alt="Close-up portrait of a thoughtful artist in a sunlit studio with paint-splattered apron and warm natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcP-qr4pVxnpH439JheX5TzvBID_ALlf5VLACiwIr_3xxgZXHpYTfhtllUOeIk4nhGO3rMS59225E21CVS-KPD3aXAM579TucmCkqY9Ybd4Oig9i6bhFNxS6nOH_uYHLbefBchlBQTW_8uwbKhRQjGL_ml3vQwxuji9Op584W24ia8JnXcjwdPgm0g-ohMdtn3E8BtUpocu7It_o44lGzg3OQ52FiiLrimdbPu35AQRlltAZUrVaIMx_d_b5iPAC9pYcPFnMhxcfw"/>
+<div class="flex flex-col">
+<span class="text-xs font-bold text-on-surface">Julian Voss</span>
+<span class="text-[10px] text-on-secondary-container">Creative Director</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopNavBar Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-16 z-40 bg-[#f9f9f9]/80 backdrop-blur-md flex items-center justify-between px-12 ml-64 font-['Manrope'] text-sm tracking-wide">
+<div class="flex items-center flex-1">
+<div class="relative w-64 group">
+<span class="material-symbols-outlined absolute left-0 top-1/2 -translate-y-1/2 text-on-secondary-container text-lg">search</span>
+<input class="bg-transparent border-none focus:ring-0 w-full pl-8 text-sm placeholder:text-on-secondary-container/50" placeholder="Search entries or art pieces..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6 text-[#154212]">
+<button class="relative hover:opacity-70 transition-opacity">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute -top-1 -right-1 w-2 h-2 bg-tertiary rounded-full"></span>
+</button>
+<button class="hover:opacity-70 transition-opacity">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="ml-64 pt-24 pb-12 px-12 min-h-screen">
+<section class="mb-8 ml-12">
+<h1 class="text-5xl font-extrabold tracking-tight text-on-surface font-headline">
+        Moth and Money Ledger For Creatives
+    </h1>
+</section>
+<!-- Header Section: Editorial Layout -->
+<section class="mb-16 ml-12">
+<h2 class="text-4xl font-extrabold tracking-tight text-on-surface mb-2">The Studio Ledger</h2>
+<p class="text-on-secondary-container max-w-lg leading-relaxed">
+                Tracking the flow of value between the physical creation and the digital marketplace. Your atelier's health at a glance.
+            </p>
+</section>
+<!-- Summary Grid: Asymmetric Bento Style -->
+<div class="grid grid-cols-12 gap-8 mb-16">
+<!-- Hero Balance Card -->
+<div class="col-span-8 bg-surface-container-lowest p-10 rounded-xl relative overflow-hidden group">
+<div class="relative z-10">
+<span class="text-label-sm font-medium uppercase tracking-[0.2em] text-on-secondary-container mb-4 block">Total Portfolio Value</span>
+<div class="flex items-baseline gap-4">
+<span class="text-6xl font-extrabold tracking-tighter text-on-surface">$142,850</span>
+<span class="text-primary font-bold flex items-center text-sm">
+<span class="material-symbols-outlined text-sm" data-icon="trending_up">trending_up</span>
+                            12.5%
+                        </span>
+</div>
+<div class="mt-8 flex gap-8">
+<div>
+<span class="block text-xs text-on-secondary-container mb-1">Available Liquidity</span>
+<span class="text-xl font-semibold">$34,200.00</span>
+</div>
+<div class="border-l border-outline-variant/30 pl-8">
+<span class="block text-xs text-on-secondary-container mb-1">Pending Commissions</span>
+<span class="text-xl font-semibold">$12,400.00</span>
+</div>
+</div>
+</div>
+<!-- Subtle Gradient Detail -->
+<div class="absolute top-0 right-0 w-64 h-full opacity-10 pointer-events-none bg-gradient-to-l from-primary-fixed to-transparent"></div>
+</div>
+<!-- Mini Stat: Credits -->
+<div class="col-span-4 bg-primary-container text-on-primary-container p-8 rounded-xl flex flex-col justify-between">
+<div>
+<span class="material-symbols-outlined text-3xl mb-4" data-icon="payments">payments</span>
+<h3 class="font-bold text-lg">Studio Income</h3>
+</div>
+<div>
+<span class="text-3xl font-extrabold">$8,420</span>
+<p class="text-xs opacity-80 mt-1">Settled this month</p>
+</div>
+</div>
+<!-- Mini Stat: Debits -->
+<div class="col-span-4 bg-surface-container p-8 rounded-xl flex flex-col justify-between">
+<div>
+<span class="material-symbols-outlined text-3xl mb-4 text-tertiary" data-icon="shopping_bag">shopping_bag</span>
+<h3 class="font-bold text-lg">Material Costs</h3>
+</div>
+<div>
+<span class="text-3xl font-extrabold">$2,140</span>
+<p class="text-xs text-on-secondary-container mt-1">Supplies &amp; Studio Rent</p>
+</div>
+</div>
+<!-- Action Card: Glassmorphism -->
+<div class="col-span-8 bg-surface-container-low/50 backdrop-blur-xl p-1 rounded-xl">
+<div class="bg-surface-container-lowest h-full w-full p-8 rounded-[0.6rem] flex items-center justify-between">
+<div class="flex items-center gap-6">
+<div class="w-16 h-16 bg-surface-container rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl" data-icon="upload_file">upload_file</span>
+</div>
+<div>
+<h4 class="font-bold text-on-surface">Process Sales Data</h4>
+<p class="text-sm text-on-secondary-container">Import CSV from Shopify or Etsy</p>
+</div>
+</div>
+<button class="px-6 py-2 border border-outline-variant hover:bg-surface-container-high transition-colors text-sm font-semibold">
+                        Launch Importer
+                    </button>
+</div>
+</div>
+</div>
+<!-- Financial Accounts Section -->
+<section class="mr-16">
+<div class="flex items-center justify-between mb-8">
+<h3 class="text-2xl font-bold tracking-tight">Financial Accounts</h3>
+<button class="text-sm font-medium text-primary hover:underline">Manage Accounts</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-separate border-spacing-y-2">
+<thead>
+<tr class="text-on-secondary-container text-xs font-bold uppercase tracking-wider">
+<th class="px-6 py-3">Account Name</th>
+<th class="px-6 py-3 text-right">Beginning Balance</th>
+<th class="px-6 py-3 text-right">Total Debits</th>
+<th class="px-6 py-3 text-right">Total Credits</th>
+<th class="px-6 py-3 text-right">Ending Balance</th>
+</tr>
+</thead>
+<tbody class="text-sm">
+<!-- Account Row -->
+<tr class="bg-surface-container-lowest hover:bg-surface-container-high transition-colors group">
+<td class="px-6 py-4 rounded-l-sm border-l-4 border-primary">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-secondary-container" data-icon="account_balance">account_balance</span>
+<span class="font-bold text-on-surface">Main Studio Checking</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right font-medium text-on-secondary-container">$28,450.00</td>
+<td class="px-6 py-4 text-right text-tertiary">-$4,220.15</td>
+<td class="px-6 py-4 text-right text-primary">+$12,850.50</td>
+<td class="px-6 py-4 text-right rounded-r-sm font-bold text-on-surface">$37,080.35</td>
+</tr>
+<!-- Account Row -->
+<tr class="bg-surface-container-lowest hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 rounded-l-sm border-l-4 border-primary-fixed-dim">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-secondary-container" data-icon="savings">savings</span>
+<span class="font-bold text-on-surface">Emergency Reserve</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right font-medium text-on-secondary-container">$15,000.00</td>
+<td class="px-6 py-4 text-right text-on-secondary-container">$0.00</td>
+<td class="px-6 py-4 text-right text-primary">+$1,500.00</td>
+<td class="px-6 py-4 text-right rounded-r-sm font-bold text-on-surface">$16,500.00</td>
+</tr>
+<!-- Account Row -->
+<tr class="bg-surface-container-lowest hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 rounded-l-sm border-l-4 border-tertiary-fixed-dim">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-secondary-container" data-icon="credit_card">credit_card</span>
+<span class="font-bold text-on-surface">Artist Rewards Visa</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right font-medium text-on-secondary-container">-$1,240.20</td>
+<td class="px-6 py-4 text-right text-tertiary">-$2,140.00</td>
+<td class="px-6 py-4 text-right text-primary">+$1,500.00</td>
+<td class="px-6 py-4 text-right rounded-r-sm font-bold text-on-surface">-$1,880.20</td>
+</tr>
+<!-- Account Row -->
+<tr class="bg-surface-container-lowest hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 rounded-l-sm border-l-4 border-secondary-fixed">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-secondary-container" data-icon="payments">payments</span>
+<span class="font-bold text-on-surface">Petty Cash Box</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right font-medium text-on-secondary-container">$450.00</td>
+<td class="px-6 py-4 text-right text-tertiary">-$85.50</td>
+<td class="px-6 py-4 text-right text-on-secondary-container">$0.00</td>
+<td class="px-6 py-4 text-right rounded-r-sm font-bold text-on-surface">$364.50</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Asymmetric Footer Insight -->
+<section class="mt-24 ml-12 grid grid-cols-12 gap-8">
+<div class="col-span-5">
+<div class="p-8 bg-surface-container rounded-xl border-none">
+<h4 class="font-bold text-lg mb-4">Tax Provision Note</h4>
+<p class="text-sm text-on-secondary-container leading-relaxed mb-6">
+                        Based on your current quarterly sales of <span class="text-on-surface font-bold">$24,100</span>, we recommend setting aside <span class="text-primary font-bold">$6,025</span> for end-of-quarter liabilities.
+                    </p>
+<button class="text-xs font-bold uppercase tracking-widest text-primary flex items-center gap-2 hover:translate-x-1 transition-transform">
+                        Move to Reserve <span class="material-symbols-outlined text-xs">arrow_forward</span>
+</button>
+</div>
+</div>
+<div class="col-span-7 flex items-center justify-end">
+<div class="relative w-full max-w-sm aspect-[16/9] rounded-xl overflow-hidden shadow-2xl shadow-on-surface/5">
+<img alt="Abstract Art" class="w-full h-full object-cover grayscale opacity-40 hover:grayscale-0 transition-all duration-700" data-alt="Minimalist abstract painting with deep forest green and charcoal gray textured brushstrokes on a cream canvas" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCj-JA1u92gJAIahKIpof0EiL4PVP71bFZTPNV0U6950YpqSXzVk4JdiQ4BPnP91B4v_kfkGYAcD_AMXdWNL-RWqI9IQK-00PamI7PHHS_dt7SdUCaogQ7hyjf6gOazExm9oPigv-VNx6jEUm9LfBThVcqjH5HpJs4cYPLKylqWhBww0ECivRgre95SE0WzN45zFbX5QuttHL3HyUUl4w1vrh9xKNqHMAbHzIFa6OuGfTsbSjxjcVPNdn8sfniZdH04eWTr_VXnzbg"/>
+<div class="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-surface to-transparent">
+<p class="text-[10px] uppercase tracking-widest text-on-secondary-container">Latest Collection Status</p>
+<h5 class="text-xl font-bold">Ephemeral Series: 80% Sold</h5>
+</div>
+</div>
+</div>
+</section>
+<footer class="mt-24 border-t border-outline-variant/20 pt-12">
+<div class="relative w-full h-48 rounded-xl overflow-hidden shadow-sm mb-8">
+<img alt="Decorative abstract art banner" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDnPnQ_5N4fFAKpnTyrTDBcOAHfZvT9WxHXs2Y_u7MMdqBih6-gvyvrVVFEwrjbTPWTEVhJ_ladCk5wjygU2UBui_gaBdGQMLlzRhm1RvHbY-07mut9AO-nxTYkFMBbu8BSexAwcyPI4hC25UQF09pbgSb3kL2H2nBGpRwF0S4_uJP1OvDu4fIBjrYJRGwfUrUEeDguvUsW5Pm32g0rW8o-_P1a2-ItaSjLMcH5xx6LD65AkW6A31nV7IET6MD_SkuL5-MriZXoI6I"/>
+<div class="absolute inset-0 bg-gradient-to-b from-transparent to-surface/40"></div>
+</div>
+<div class="flex flex-col md:flex-row justify-between items-center gap-4 text-on-secondary-container text-xs pb-8 px-2 font-['Manrope']">
+<div class="flex items-center gap-4">
+<p class="font-bold text-on-surface">Moth and Money V4</p>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<p>© 2023 The Digital Atelier</p>
+</div>
+<div class="flex gap-8">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors" href="#">Documentation</a>
+</div>
+</div>
+</footer>
+</main>
+</body></html>

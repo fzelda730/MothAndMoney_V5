@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bank Statement Template Configuration | Digital Atelier</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error-container": "#93000a",
+                        "surface-container-low": "#f3f3f3",
+                        "outline-variant": "#c2c9bb",
+                        "on-primary": "#ffffff",
+                        "surface": "#f9f9f9",
+                        "secondary": "#5f5e5e",
+                        "on-surface": "#1a1c1c",
+                        "secondary-fixed": "#e5e2e1",
+                        "error-container": "#ffdad6",
+                        "surface-tint": "#3b6934",
+                        "primary-fixed-dim": "#a1d494",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "outline": "#72796e",
+                        "surface-container-highest": "#e2e2e2",
+                        "primary-fixed": "#bcf0ae",
+                        "on-tertiary": "#ffffff",
+                        "on-tertiary-container": "#ffaeac",
+                        "on-background": "#1a1c1c",
+                        "secondary-container": "#e2dfde",
+                        "tertiary-fixed": "#ffdad8",
+                        "on-error": "#ffffff",
+                        "error": "#ba1a1a",
+                        "surface-bright": "#f9f9f9",
+                        "surface-dim": "#dadada",
+                        "inverse-primary": "#a1d494",
+                        "inverse-on-surface": "#f1f1f1",
+                        "background": "#f9f9f9",
+                        "tertiary-container": "#902d31",
+                        "surface-container-high": "#e8e8e8",
+                        "on-primary-container": "#9dd090",
+                        "surface-container": "#eeeeee",
+                        "on-primary-fixed-variant": "#23501e",
+                        "on-primary-fixed": "#002201",
+                        "primary-container": "#2d5a27",
+                        "on-tertiary-fixed": "#410007",
+                        "on-surface-variant": "#42493e",
+                        "on-secondary-fixed-variant": "#474746",
+                        "tertiary-fixed-dim": "#ffb3b1",
+                        "on-tertiary-fixed-variant": "#832329",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-container": "#636262",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "tertiary": "#71151d",
+                        "surface-variant": "#e2e2e2",
+                        "primary": "#154212",
+                        "inverse-surface": "#2f3131"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-nav {
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface min-h-screen">
+<!-- SideNavBar Shell -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-[#f3f3f3] dark:bg-neutral-800/50 backdrop-blur-xl flex flex-col py-8 z-50">
+<div class="px-8 mb-12">
+<h1 class="font-headline font-black text-[#1A1A1A] dark:text-white text-xl tracking-tight">The Ledger</h1>
+<p class="text-xs text-on-secondary-container font-medium opacity-70">Curated Finance</p>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="text-[#636262] dark:text-neutral-400 mx-2 px-4 py-3 hover:bg-[#e8e8e8] dark:hover:bg-neutral-700 rounded-md transition-all duration-300 flex items-center gap-3 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-medium text-sm">Dashboard</span>
+</a>
+<a class="bg-[#a1d494] dark:bg-[#2d5a27] text-[#154212] dark:text-[#bcf0ae] rounded-md mx-2 px-4 py-3 shadow-sm flex items-center gap-3 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">how_to_reg</span>
+<span class="font-medium text-sm">Onboarding</span>
+</a>
+<a class="text-[#636262] dark:text-neutral-400 mx-2 px-4 py-3 hover:bg-[#e8e8e8] dark:hover:bg-neutral-700 rounded-md transition-all duration-300 flex items-center gap-3 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+<span class="font-medium text-sm">Ledger</span>
+</a>
+<a class="text-[#636262] dark:text-neutral-400 mx-2 px-4 py-3 hover:bg-[#e8e8e8] dark:hover:bg-neutral-700 rounded-md transition-all duration-300 flex items-center gap-3 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">assessment</span>
+<span class="font-medium text-sm">Reports</span>
+</a>
+</nav>
+<div class="mt-auto px-4 flex flex-col gap-1">
+<button class="bg-primary text-on-primary font-headline text-xs font-bold py-3 px-4 mb-4 rounded-sm flex items-center justify-center gap-2 transition-opacity hover:opacity-90">
+<span class="material-symbols-outlined text-sm">add</span>
+            New Template
+        </button>
+<a class="text-[#636262] dark:text-neutral-400 mx-2 px-4 py-3 hover:bg-[#e8e8e8] dark:hover:bg-neutral-700 rounded-md transition-all duration-300 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">help_outline</span>
+<span class="font-medium text-sm">Help</span>
+</a>
+<a class="text-[#636262] dark:text-neutral-400 mx-2 px-4 py-3 hover:bg-[#e8e8e8] dark:hover:bg-neutral-700 rounded-md transition-all duration-300 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-medium text-sm">Sign Out</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 p-24">
+<!-- Editorial Header -->
+<header class="mb-20 max-w-4xl">
+<section class="mb-8">
+<h1 class="text-5xl font-extrabold tracking-tight text-on-surface font-headline">
+                Moth and Money Ledger For Creatives
+            </h1>
+</section>
+<nav class="mb-8 flex items-center gap-2 text-xs font-medium text-on-secondary-container uppercase tracking-widest">
+<span>Configuration</span>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<span class="text-primary font-bold">Template Studio</span>
+</nav>
+<h2 class="font-headline text-5xl font-extrabold tracking-tighter text-on-surface mb-4">Moth and Money <span class="text-primary">V5</span></h2>
+<p class="text-lg text-on-secondary-container max-w-2xl leading-relaxed">Design a persistent blueprint for your bank statements. Map column data once and maintain consistent financial clarity for your digital atelier.</p>
+</header>
+<!-- Template Identity Section -->
+<section class="grid grid-cols-12 gap-12 mb-24">
+<div class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl font-bold mb-2">Template Identity</h3>
+<p class="text-sm text-on-secondary-container">Provide a descriptive name for your template to reuse it across monthly reconciled statements.</p>
+</div>
+<div class="col-span-12 md:col-span-8">
+<div class="max-w-md">
+<label class="block text-xs font-bold uppercase tracking-wider text-on-secondary-container mb-2">Template Name</label>
+<input class="w-full bg-transparent border-b-2 border-outline-variant focus:border-primary focus:ring-0 transition-all py-3 font-headline text-xl outline-none placeholder:text-outline-variant" placeholder="e.g. Chase Business Checking" type="text"/>
+</div>
+</div>
+</section>
+<!-- File Upload Section (The Drop Zone) -->
+<section class="grid grid-cols-12 gap-12 mb-24">
+<div class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl font-bold mb-2">Upload Preview</h3>
+<p class="text-sm text-on-secondary-container">Upload a sample .csv file to identify available columns for the mapping process.</p>
+</div>
+<div class="col-span-12 md:col-span-8">
+<div class="group relative flex flex-col items-center justify-center border-2 border-dashed border-outline-variant/30 bg-surface-container-lowest h-64 rounded-sm transition-all hover:bg-primary-fixed/20 hover:border-primary/40 cursor-pointer">
+<div class="flex flex-col items-center">
+<span class="material-symbols-outlined text-4xl text-primary mb-4">upload_file</span>
+<p class="font-headline font-bold text-on-surface">Select a sample statement</p>
+<p class="text-xs text-on-secondary-container mt-1">Accepts CSV, TSV up to 10MB</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Field Mapping Section -->
+<section class="grid grid-cols-12 gap-12 mb-24">
+<div class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl font-bold mb-2">Column Mapping</h3>
+<p class="text-sm text-on-secondary-container">Select the corresponding columns from your file to match the Atelier's system requirements.</p>
+</div>
+<div class="col-span-12 md:col-span-8">
+<div class="bg-surface-container-low rounded-xl p-8 space-y-6">
+<!-- Mapping Rows -->
+<div class="grid grid-cols-2 gap-8 items-center border-b border-outline-variant/15 pb-6">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">calendar_today</span>
+<span class="font-headline font-bold text-sm">Date</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option selected="">Transaction Date</option>
+<option>Posting Date</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-8 items-center border-b border-outline-variant/15 pb-6">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">category</span>
+<span class="font-headline font-bold text-sm">Transaction Type</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option selected="">Type</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-8 items-center border-b border-outline-variant/15 pb-6">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">person</span>
+<span class="font-headline font-bold text-sm">Payee</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option selected="">Description</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-8 items-center border-b border-outline-variant/15 pb-6">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">payments</span>
+<span class="font-headline font-bold text-sm">Amount</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option selected="">Amount (USD)</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-8 items-center border-b border-outline-variant/15 pb-6">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">account_tree</span>
+<span class="font-headline font-bold text-sm">Chart of Account</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option>Category</option>
+<option>Internal Tag</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-8 items-center">
+<label class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container">notes</span>
+<span class="font-headline font-bold text-sm">Description</span>
+</label>
+<select class="bg-surface-container-lowest border-none text-sm rounded-sm py-2 px-4 focus:ring-1 focus:ring-primary shadow-sm appearance-none cursor-pointer">
+<option>Select Column</option>
+<option>Memo</option>
+<option>Extended Data</option>
+</select>
+</div>
+</div>
+</div>
+</section>
+<!-- Table Preview Section -->
+<section class="mb-24">
+<div class="mb-8">
+<h3 class="font-headline text-xl font-bold mb-2">Live Preview</h3>
+<p class="text-sm text-on-secondary-container">Verification of the first 3 rows of your statement using the current mapping.</p>
+</div>
+<div class="bg-surface-container-lowest shadow-[0_40px_100px_rgba(26,28,28,0.06)] overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container text-xs font-bold text-on-secondary-container uppercase tracking-widest">
+<tr>
+<th class="px-8 py-6">Date</th>
+<th class="px-8 py-6">Type</th>
+<th class="px-8 py-6">Payee</th>
+<th class="px-8 py-6">Amount</th>
+<th class="px-8 py-6">Chart of Account</th>
+</tr>
+</thead>
+<tbody class="text-sm">
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-8 py-6 border-b border-outline-variant/10">10/24/2023</td>
+<td class="px-8 py-6 border-b border-outline-variant/10">
+<span class="bg-primary-fixed-dim text-on-primary-fixed-variant px-2 py-1 rounded-sm text-[10px] font-bold uppercase">Debit</span>
+</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 font-headline font-bold">Paper Supply Co.</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 font-headline text-error">-$240.12</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 text-on-secondary-container">Materials</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-8 py-6 border-b border-outline-variant/10">10/25/2023</td>
+<td class="px-8 py-6 border-b border-outline-variant/10">
+<span class="bg-primary-fixed-dim text-on-primary-fixed-variant px-2 py-1 rounded-sm text-[10px] font-bold uppercase">Credit</span>
+</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 font-headline font-bold">Client Deposit: Smith</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 font-headline text-primary">+$1,500.00</td>
+<td class="px-8 py-6 border-b border-outline-variant/10 text-on-secondary-container">Consulting</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-8 py-6">10/26/2023</td>
+<td class="px-8 py-6">
+<span class="bg-primary-fixed-dim text-on-primary-fixed-variant px-2 py-1 rounded-sm text-[10px] font-bold uppercase">Debit</span>
+</td>
+<td class="px-8 py-6 font-headline font-bold">Studio Rent</td>
+<td class="px-8 py-6 font-headline text-error">-$2,100.00</td>
+<td class="px-8 py-6 text-on-secondary-container">Operations</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Final Actions -->
+<footer class="flex justify-end gap-6 items-center border-t border-outline-variant/20 pt-12 mb-24">
+<button class="px-8 py-3 text-sm font-bold text-on-secondary-container hover:text-on-surface transition-colors">
+            Cancel
+        </button>
+<button class="bg-primary-container hover:bg-primary transition-all text-on-primary px-12 py-4 rounded-sm font-headline font-extrabold flex items-center gap-3 shadow-lg shadow-primary-container/20">
+<span class="material-symbols-outlined text-sm">save</span>
+            Save Template
+        </button>
+</footer>
+<!-- Full Width Footer with Artistic Image -->
+<footer class="border-t border-outline-variant/20 pt-12">
+<div class="relative w-full h-48 rounded-xl overflow-hidden shadow-sm mb-8">
+<img alt="Decorative abstract art banner" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDnPnQ_5N4fFAKpnTyrTDBcOAHfZvT9WxHXs2Y_u7MMdqBih6-gvyvrVVFEwrjbTPWTEVhJ_ladCk5wjygU2UBui_gaBdGQMLlzRhm1RvHbY-07mut9AO-nxTYkFMBbu8BSexAwcyPI4hC25UQF09pbgSb3kL2H2nBGpRwF0S4_uJP1OvDu4fIBjrYJRGwfUrUEeDguvUsW5Pm32g0rW8o-_P1a2-ItaSjLMcH5xx6LD65AkW6A31nV7IET6MD_SkuL5-MriZXoI6I"/>
+<div class="absolute inset-0 bg-gradient-to-b from-transparent to-surface/40"></div>
+</div>
+<div class="flex flex-col md:flex-row justify-between items-center gap-4 text-on-secondary-container text-xs pb-8 px-2 font-['Manrope']">
+<div class="flex items-center gap-4">
+<p class="font-bold text-on-surface">Moth and Money V5</p>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<p>© 2023 The Digital Atelier</p>
+</div>
+<div class="flex gap-8">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors" href="#">Documentation</a>
+</div>
+</div>
+</footer>
+</main>
+<!-- Background Decorative Element -->
+<div class="fixed top-0 right-0 -z-10 w-1/2 h-full opacity-10 pointer-events-none">
+<div class="absolute inset-0 bg-gradient-to-bl from-primary-fixed to-transparent rounded-full blur-[120px] translate-x-1/2 -translate-y-1/2"></div>
+</div>
+</body></html>

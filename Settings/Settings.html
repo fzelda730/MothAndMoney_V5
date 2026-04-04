@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings | Moth and Money Ledger For Creatives</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&amp;family=Inter:wght@400;500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-container": "#ffaeac",
+                        "primary-fixed-dim": "#a1d494",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-high": "#e8e8e8",
+                        "surface-container": "#eeeeee",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-container": "#636262",
+                        "outline": "#72796e",
+                        "surface-container-highest": "#e2e2e2",
+                        "on-surface": "#1a1c1c",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "inverse-primary": "#a1d494",
+                        "surface-variant": "#e2e2e2",
+                        "primary-container": "#2d5a27",
+                        "on-primary-fixed": "#002201",
+                        "on-primary": "#ffffff",
+                        "surface": "#f9f9f9",
+                        "primary-fixed": "#bcf0ae",
+                        "on-background": "#1a1c1c",
+                        "tertiary-container": "#902d31",
+                        "on-surface-variant": "#42493e",
+                        "on-tertiary-fixed-variant": "#832329",
+                        "inverse-surface": "#2f3131",
+                        "inverse-on-surface": "#f1f1f1",
+                        "on-primary-container": "#9dd090",
+                        "tertiary-fixed": "#ffdad8",
+                        "surface-container-low": "#f3f3f3",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "surface-bright": "#f9f9f9",
+                        "outline-variant": "#c2c9bb",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#474746",
+                        "surface-tint": "#3b6934",
+                        "on-error": "#ffffff",
+                        "surface-dim": "#dadada",
+                        "secondary-container": "#e2dfde",
+                        "tertiary-fixed-dim": "#ffb3b1",
+                        "tertiary": "#71151d",
+                        "secondary-fixed": "#e5e2e1",
+                        "on-primary-fixed-variant": "#23501e",
+                        "error": "#ba1a1a",
+                        "secondary": "#5f5e5e",
+                        "primary": "#154212",
+                        "background": "#f9f9f9",
+                        "on-tertiary-fixed": "#410007",
+                        "on-secondary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .canvas-shadow {
+            box-shadow: 0 40px 40px -20px rgba(26, 28, 28, 0.06);
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9f9f9;
+        }
+        h1, h2, h3, .brand-font {
+            font-family: 'Manrope', sans-serif;
+        }
+        .glass-nav {
+            background: rgba(243, 243, 243, 0.8);
+            backdrop-filter: blur(12px);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f9f9f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #e2e2e2;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="text-on-surface">
+<!-- Sidebar Navigation -->
+<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col h-full py-6 gap-2 bg-[#f3f3f3]/80 dark:bg-stone-900/80 backdrop-blur-xl transition-transform z-50">
+<div class="px-6 mb-8"><h1 class="text-lg font-bold text-[#1a1a1a] dark:text-slate-100">Moth and Money V4</h1>
+<p class="text-xs text-on-secondary-container opacity-70">The Digital Atelier</p></div>
+<nav class="flex-1 space-y-1">
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="how_to_reg">how_to_reg</span>
+<span>Onboarding</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="menu_book">menu_book</span>
+<span>Ledger</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Reports</span>
+</a>
+</nav><div class="px-4 mb-4">
+<button class="w-full bg-primary text-on-primary py-3 px-4 rounded-sm flex items-center justify-center gap-2 font-medium transition-all hover:opacity-90 active:scale-95">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Entry
+            </button>
+</div>
+<div class="mt-auto border-t border-outline-variant/10 pt-4 space-y-1">
+<!-- Active Tab: Settings -->
+<a class="bg-[#a1d494] text-[#154212] rounded-md mx-2 px-4 py-2 font-semibold shadow-sm flex items-center gap-3 transition-transform active:scale-95 active:opacity-90 active-nav-fill" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="text-[#636262] hover:text-[#1a1a1a] hover:bg-[#e8e8e8] mx-2 px-4 py-2 transition-all duration-200 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Support</span>
+</a>
+<div class="mt-4 px-6 flex items-center gap-3">
+<img alt="Artist Studio Profile" class="w-8 h-8 rounded-full object-cover" data-alt="Close-up portrait of a thoughtful artist in a sunlit studio with paint-splattered apron and warm natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDAdHsO48KXX5YTRiWvIgUtjznqQHSdzO-PcsOr4hl82E5gNdI3raPj9YJfAdM_QKRMdWVn031tO_TYj6JUU6wh_cy6TIsJf1wNQZd0D6AWQKOh5F2E569hXR7KLr-3MUbIHmAKvZxCwDPPZIG63JSeuT9P1xAsOYm7AzdQsu8cqB1eKZpc3BJ3FTgGP5rFFr-WnReugDTuIAEhUj96GblrlmtK6sYljnpSw2AwMhSOrN0b-SlPrP3P8uLZAoNRMNUltNHudq6TWhc"/>
+<div class="flex flex-col">
+<span class="text-xs font-bold text-on-surface">Julian Voss</span>
+<span class="text-[10px] text-on-secondary-container">Creative Director</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Stage -->
+<main class="ml-64 min-h-screen bg-surface relative">
+<!-- Top Bar -->
+<header class="flex justify-between items-center w-full px-12 py-6 bg-surface z-40">
+<div class="flex flex-col">
+<h1 class="text-3xl font-black text-on-surface tracking-tight font-headline">Moth and Money Ledger For Creatives</h1>
+<p class="text-on-secondary-container text-sm font-medium">Global Settings &amp; Configuration</p>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 rounded-full flex items-center justify-center hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-on-surface" data-icon="notifications">notifications</span>
+</button>
+<div class="w-10 h-10 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant/20">
+<img alt="Artist profile avatar" class="w-full h-full object-cover" data-alt="Close up portrait of a middle-aged male artist with a salt and pepper beard and gentle eyes in a sunlit studio" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDAdHsO48KXX5YTRiWvIgUtjznqQHSdzO-PcsOr4hl82E5gNdI3raPj9YJfAdM_QKRMdWVn031tO_TYj6JUU6wh_cy6TIsJf1wNQZd0D6AWQKOh5F2E569hXR7KLr-3MUbIHmAKvZxCwDPPZIG63JSeuT9P1xAsOYm7AzdQsu8cqB1eKZpc3BJ3FTgGP5rFFr-WnReugDTuIAEhUj96GblrlmtK6sYljnpSw2AwMhSOrN0b-SlPrP3P8uLZAoNRMNUltNHudq6TWhc"/>
+</div>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="px-12 pb-24 max-w-6xl">
+<div class="grid grid-cols-12 gap-12 mt-8 items-start">
+<!-- Profile Section -->
+<section class="col-span-12 lg:col-span-8 bg-surface-container-lowest p-10 rounded-xl canvas-shadow border-none">
+<div class="flex justify-between items-start mb-10">
+<div>
+<h3 class="text-2xl font-bold tracking-tight mb-1">Studio &amp; Artist Profile</h3>
+<p class="text-on-secondary-container text-sm">Define how your studio appears in exports and headers.</p>
+</div>
+<span class="material-symbols-outlined text-primary-container opacity-40 text-4xl" data-icon="brush">brush</span>
+</div>
+<div class="space-y-8">
+<div class="flex items-center gap-8">
+<div class="w-32 h-32 rounded-lg bg-surface-container flex flex-col items-center justify-center border-2 border-dashed border-outline-variant/40 hover:bg-primary-fixed/20 transition-colors cursor-pointer group">
+<span class="material-symbols-outlined text-outline group-hover:text-primary" data-icon="upload">upload</span>
+<span class="text-[10px] font-bold mt-2 text-outline uppercase tracking-wider">Upload Logo</span>
+</div>
+<div class="flex-1 space-y-4">
+<div class="relative group">
+<label class="text-[10px] font-black uppercase text-on-secondary-container tracking-widest absolute -top-2 left-0">Artist Name</label>
+<input class="w-full bg-transparent border-0 border-b border-outline-variant/40 pt-4 pb-2 focus:ring-0 focus:border-primary transition-all text-on-surface font-medium placeholder-on-secondary-container/40" type="text" value="Julian Vane"/>
+</div>
+<div class="relative group">
+<label class="text-[10px] font-black uppercase text-on-secondary-container tracking-widest absolute -top-2 left-0">Studio Name</label>
+<input class="w-full bg-transparent border-0 border-b border-outline-variant/40 pt-4 pb-2 focus:ring-0 focus:border-primary transition-all text-on-surface font-medium" type="text" value="The Verdant Atelier"/>
+</div>
+</div>
+</div>
+<div class="relative group">
+<label class="text-[10px] font-black uppercase text-on-secondary-container tracking-widest absolute -top-2 left-0">Bio / Statement</label>
+<textarea class="w-full bg-transparent border-0 border-b border-outline-variant/40 pt-4 pb-2 focus:ring-0 focus:border-primary transition-all text-on-surface font-medium resize-none" rows="3">A focused space for organic sculpture and ecological installations, balancing fine art with financial integrity.</textarea>
+</div>
+</div>
+</section>
+<!-- Financial Configs -->
+<section class="col-span-12 lg:col-span-4 bg-surface-container-low p-8 rounded-xl border-none">
+<h3 class="text-xl font-bold tracking-tight mb-6">Financial Configurations</h3>
+<div class="space-y-6">
+<div>
+<label class="block text-[10px] font-black uppercase text-on-secondary-container tracking-widest mb-2">Base Currency</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-sm py-3 px-4 text-sm font-medium focus:ring-2 focus:ring-primary/20">
+<option>USD — US Dollar</option>
+<option>EUR — Euro</option>
+<option>GBP — British Pound</option>
+</select>
+</div>
+<div>
+<label class="block text-[10px] font-black uppercase text-on-secondary-container tracking-widest mb-2">Fiscal Year Start</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-sm py-3 px-4 text-sm font-medium focus:ring-2 focus:ring-primary/20">
+<option>January</option>
+<option>April</option>
+<option>July</option>
+</select>
+</div>
+<div class="relative group">
+<label class="text-[10px] font-black uppercase text-on-secondary-container tracking-widest absolute -top-2 left-0">Tax ID</label>
+<input class="w-full bg-transparent border-0 border-b border-outline-variant/40 pt-4 pb-2 focus:ring-0 focus:border-primary transition-all text-on-surface font-medium" type="text" value="XX-882104-Z"/>
+</div><div class="relative group">
+<label class="text-[10px] font-black uppercase text-on-secondary-container tracking-widest absolute -top-2 left-0">Default Tax Rate (%)</label>
+<input class="w-full bg-transparent border-0 border-b border-outline-variant/40 pt-4 pb-2 focus:ring-0 focus:border-primary transition-all text-on-surface font-medium" type="text" value="8.5"/>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-container-lowest rounded-sm">
+<div class="flex flex-col">
+<span class="text-xs font-bold text-on-surface">Cash vs Accrual</span>
+<span class="text-[10px] text-on-secondary-container uppercase">Currently: Accrual</span>
+</div>
+<button class="w-10 h-5 bg-primary-container rounded-full relative flex items-center px-1">
+<div class="w-3 h-3 bg-white rounded-full absolute right-1"></div>
+</button>
+</div>
+</div>
+</section>
+<!-- Data Management & Bento Grid -->
+<div class="col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Bank Connections -->
+<div class="lg:col-span-2 bg-surface-container-lowest p-8 rounded-xl canvas-shadow">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-xl font-bold tracking-tight">Connected Accounts</h3>
+<button class="bg-primary text-white px-4 py-2 text-xs font-bold rounded-sm hover:opacity-90 transition-opacity">Connect New</button>
+</div>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-4 bg-surface-container-low rounded-sm hover:bg-surface-container-high transition-colors group">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-white flex items-center justify-center rounded">
+<span class="material-symbols-outlined text-primary" data-icon="account_balance">account_balance</span>
+</div>
+<div>
+<p class="text-sm font-bold">Main Studio Checking</p>
+<p class="text-[10px] text-on-secondary-container">Chase Bank •••• 4421</p>
+</div>
+</div>
+<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-2 hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="edit">edit</span></button>
+<button class="p-2 hover:text-error"><span class="material-symbols-outlined text-lg" data-icon="delete">delete</span></button>
+</div>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-container-low rounded-sm hover:bg-surface-container-high transition-colors group">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-white flex items-center justify-center rounded">
+<span class="material-symbols-outlined text-tertiary" data-icon="credit_card">credit_card</span>
+</div>
+<div>
+<p class="text-sm font-bold">Materials Credit Line</p>
+<p class="text-[10px] text-on-secondary-container">Amex Platinum •••• 1002</p>
+</div>
+</div>
+<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-2 hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="edit">edit</span></button>
+<button class="p-2 hover:text-error"><span class="material-symbols-outlined text-lg" data-icon="delete">delete</span></button>
+</div>
+</div>
+</div>
+<div class="mt-8 pt-8 border-t border-outline-variant/15 flex gap-4">
+<button class="flex items-center gap-2 px-6 py-3 bg-primary-fixed text-on-primary-fixed-variant text-xs font-bold rounded-sm transition-transform active:scale-95">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                                Export All Data (.csv)
+                            </button>
+<button class="flex items-center gap-2 px-6 py-3 border border-error/20 text-error text-xs font-bold rounded-sm hover:bg-error/5 transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="archive">archive</span>
+                                Archive Studio
+                            </button>
+</div>
+</div>
+<!-- Security & Preferences -->
+<div class="space-y-8">
+<section class="bg-surface-container-low p-6 rounded-xl">
+<h4 class="text-sm font-black uppercase text-on-secondary-container tracking-widest mb-4">Account &amp; Security</h4>
+<div class="space-y-4">
+<div>
+<p class="text-[10px] font-bold text-on-secondary-container uppercase mb-1">Email</p>
+<p class="text-sm font-medium">julian@theatelier.com</p>
+</div>
+<button class="w-full text-left py-2 text-primary font-bold text-xs hover:underline flex items-center gap-2">
+                                    Change Password <span class="material-symbols-outlined text-sm" data-icon="lock_open">lock_open</span>
+</button>
+<div class="flex items-center justify-between pt-2">
+<span class="text-xs font-bold">Two-Factor Auth</span>
+<button class="w-8 h-4 bg-outline-variant rounded-full relative flex items-center px-1">
+<div class="w-2.5 h-2.5 bg-white rounded-full"></div>
+</button>
+</div>
+</div>
+</section>
+<section class="bg-surface-container-low p-6 rounded-xl">
+<h4 class="text-sm font-black uppercase text-on-secondary-container tracking-widest mb-4">Application Prefs</h4>
+<div class="space-y-5">
+<div>
+<p class="text-[10px] font-bold text-on-secondary-container uppercase mb-2">Interface Theme</p>
+<div class="flex gap-2 p-1 bg-surface-container-lowest rounded-sm">
+<button class="flex-1 py-2 text-[10px] font-bold bg-primary text-white rounded-sm">Light</button>
+<button class="flex-1 py-2 text-[10px] font-bold text-on-secondary-container hover:bg-surface-container transition-colors">Dark</button>
+<button class="flex-1 py-2 text-[10px] font-bold text-on-secondary-container hover:bg-surface-container transition-colors">System</button>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-xs font-bold">Compact UI</span>
+<span class="text-[10px] text-on-secondary-container">Show more rows at once</span>
+</div>
+<button class="w-10 h-5 bg-outline-variant rounded-full relative flex items-center px-1">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</button>
+</div>
+</div>
+</section>
+</div>
+</div>
+</div>
+<!-- Minimalist Artistic Footer Banner -->
+<footer class="mt-24 pt-12 border-t border-outline-variant/20 relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 px-4 bg-surface text-[10px] font-black uppercase tracking-[0.3em] text-on-secondary-container/40">
+                    Est. MMXXIII
+                </div>
+<div class="flex flex-col items-center text-center">
+<div class="w-full h-24 mb-8 overflow-hidden rounded-xl bg-primary-container relative">
+<div class="absolute inset-0 opacity-20 mix-blend-overlay" style="background: radial-gradient(circle at center, white 0%, transparent 80%);"></div>
+<img alt="Artistic background" class="w-full h-full object-cover" data-alt="Abstract macro shot of swirling deep green and gold oil paint textures with soft bokeh highlights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCnznwfpgKxvUeN0r7DMfO9K7IF69eD5MNgICfBdZK5PE1JxrnrbvWKGJzwz8BDRVa9OKTOfBU9O7zCM2zEnl4XyGBLPtdsDOfhtY_uQTLwGygxppovMHXlBle7sB9EU0iMagMs7mxY8ZmBPX12qfkikaFGDrkkYUeUjx6d-ebLBpIosc8AcK2TDa2D9QItCLw50SwJZt2ihbCAq4Ig59Dq56Yn_B4RVTDtfU_VSyxLcbScklSPMM2-BL6W0JsE90wpz3kYIQjRGRw"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="text-white/80 font-headline text-4xl font-black tracking-tighter mix-blend-difference">Creative Ledger Architecture</span>
+</div>
+</div>
+<p class="text-xs text-on-secondary-container font-medium max-w-lg mb-4">
+                        Financial clarity for the modern artist. Moth and Money protects your process so you can focus on the product.
+                    </p>
+<div class="flex gap-6 text-[10px] font-black uppercase tracking-widest text-on-secondary-container/60">
+<a class="hover:text-primary transition-colors" href="#">Privacy Charter</a>
+<a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors" href="#">API Docs</a>
+</div>
+</div>
+</footer>
+</div>
+</main>
+<!-- FAB Suppression: On Settings page, no FAB is rendered as per instructions. -->
+</body></html>

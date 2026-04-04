@@ -1,0 +1,29 @@
+# Virtual environments (any location)
+.venv/
+venv/
+env/
+app/.venv/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tooling (local only)
+.idea/
+*.swp
+*.swo
