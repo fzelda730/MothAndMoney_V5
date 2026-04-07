@@ -6,7 +6,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
+from data.providers import db_ready, save_credit_card_template_to_db
 from data.sample_data import CC_PREVIEW_ROWS
+from db.connection import use_sample_data
 
 st.set_page_config(
     page_title="Credit Card Config | Moth and Money",
@@ -48,8 +50,12 @@ with col_left:
     """)
 
     st.html('<label class="mm-settings-label">Template Name</label>')
-    template_name = st.text_input("cc_tmpl_name", value="Amex Business Gold",
-                                   label_visibility="collapsed")
+    st.text_input(
+        "cc_tmpl_name",
+        value="Amex Business Gold",
+        label_visibility="collapsed",
+        key="cc_tmpl_name",
+    )
 
     st.html("<div style='height:1.5rem'></div>")
 
@@ -86,21 +92,26 @@ with col_left:
 
     st.button("Cancel", key="cc_cancel_map")
 
-    cc_mapping_fields = [
-        ("Transaction Type", ["Type", "Transaction Type", "Dr/Cr"]),
-        ("Payee",            ["Description", "Payee", "Merchant", "Vendor"]),
-        ("Amount",           ["Amount", "Transaction Amount", "Net"]),
-        ("Chart of Account", ["Account Code", "GL Code", "Category", "Account"]),
-        ("Description",      ["Note", "Memo", "Reference", "Narrative"]),
+    CC_TEMPLATE_FIELDS = [
+        ("transaction_type", "Transaction Type", ["Type", "Transaction Type", "Dr/Cr"]),
+        ("payee", "Payee", ["Description", "Payee", "Merchant", "Vendor"]),
+        ("amount", "Amount", ["Amount", "Transaction Amount", "Net"]),
+        ("account", "Chart of Account", ["Account Code", "GL Code", "Category", "Account"]),
+        ("description", "Description", ["Note", "Memo", "Reference", "Narrative"]),
     ]
 
-    for field, options in cc_mapping_fields:
+    for map_key, field, options in CC_TEMPLATE_FIELDS:
         col_label, col_select = st.columns([1, 2], gap="small")
         with col_label:
             st.html(f"<div style='padding-top:0.7rem;font-size:0.8rem;font-weight:600;"
                         f"color:#1a1c1c;'>{field}</div>")
         with col_select:
-            st.selectbox(f"cc_map_{field}", options, label_visibility="collapsed")
+            st.selectbox(
+                f"cc_map_{field}",
+                options,
+                label_visibility="collapsed",
+                key=f"tpl_cc_{map_key}",
+            )
 
     # ── Payee Intelligence (inline) ───────────────────────────────────────────
     st.html("<div style='height:1rem'></div>")
@@ -196,6 +207,19 @@ with col_right:
     """)
 
     if st.button("💾 Save Template", key="cc_save", type="primary", use_container_width=True):
-        st.success("Credit card template saved. Onboarding complete!")
+        name = (st.session_state.get("cc_tmpl_name") or "").strip() or "Credit card template"
+        if use_sample_data():
+            st.warning(
+                "Demo mode (USE_SAMPLE_DATA=true): the template is not stored in PostgreSQL. "
+                "Set USE_SAMPLE_DATA=false in app/.env to save to the database."
+            )
+            st.success("Credit card template saved (demo). Onboarding complete!")
+        else:
+            column_map = {
+                k: st.session_state.get(f"tpl_cc_{k}")
+                for k in ("transaction_type", "payee", "amount", "account", "description")
+            }
+            save_credit_card_template_to_db(name, column_map)
+            st.success("Credit card template saved to the database. Onboarding complete!")
         st.switch_page("pages/1_Dashboard.py")
 

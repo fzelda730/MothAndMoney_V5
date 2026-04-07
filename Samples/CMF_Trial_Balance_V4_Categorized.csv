@@ -1,0 +1,101 @@
+Proposed Account Number,Account Name,Account Type,Debit,Credit
+1010,4199 - Relay,Asset,38.40  ,
+1020,7861 - Relay,Asset,0.00  ,
+1030,8454 - Relay,Asset,0.00  ,
+1040,8482 - Relay,Asset,0.00  ,
+1050,8483 - Relay,Asset,0.92  ,
+1060,8492 - Relay,Asset,0.00  ,
+1070,8499 - Relay,Asset,"8,770.00  ",
+1080,8502 - Relay,Asset,0.00  ,
+1090,8519 - Relay,Asset,414.52  ,
+1100,Altura - 67-000 - Profit,Asset,,0.02  
+1110,Altura - 67-001 - Tax,Asset,0.00  ,
+1120,Altura - 67-002 Vault,Asset,0.00  ,
+1130,Chase Checking - 7889,Asset,0.04  ,
+1140,Chase Savings - 1905,Asset,0.00  ,
+1150,Checking - 1069,Asset,,21.00  
+1160,CSB Checking -2817,Asset,,11.76  
+1170,Home Savings Acct - 1557,Asset,0.00  ,
+1180,PayPal Bank,Asset,886.26  ,
+1190,Savings-0005,Asset,66.86  ,
+1200,Schwab Brokerage - Individual,Asset,,468.75  
+1210,Schwab Brokerage - IRA,Asset,,887.15  
+1220,Uncategorized Asset,Asset,0.00  ,
+1230,Accumulated Depreciation,Asset,,102.00  
+1240,Bank Service Charges,Asset,256.46  ,
+1250,"Thursday, Mar 26, 2026 01:40:05 PM GMT-7 - Cash Basis",Asset,,
+2010,Capital One - CSB Credit Card - 6306,Liability,,"1,725.39  "
+2020,Chase Biz - 6984,Liability,,187.20  
+2030,Chase Credit Card 8541,Liability,,0.00  
+2040,Chase Credit Card 9040,Liability,,0.00  
+2050,Credit Card (3677),Liability,,0.00  
+2060,Credit Card (5807),Liability,,0.00  
+2070,Credit Card - 0782,Liability,,0.00  
+2080,Credit Card - 8379,Liability,,49.95  
+2090,Visa 5807,Liability,,0.00  
+2100,Notes Payable:Kinecta Credit Union,Liability,,0.00  
+2110,HVAC Loan Payable,Liability,"4,284.72  ",
+2120,SBA Business Loan,Liability,,"84,330.00  "
+3010,Opening Balance Equity,Equity,,"1,462.68  "
+3020,Owner Contribution:Owner's Equity,Equity,,"6,141.00  "
+3030,Owners Draw,Equity,"294,596.66  ",
+3040,Owners Draw:Automobile Lease,Equity,"11,438.35  ",
+3050,Owners Draw:HOA Fees,Equity,"13,756.22  ",
+3060,Owners Draw:Home Mortgage,Equity,"53,917.37  ",
+3070,Owners Draw:Home Rent,Equity,,0.00  
+3080,Owners Draw:Life Insurance,Equity,,0.00  
+3090,Owners Draw:Mortgage,Equity,,0.00  
+3100,Owners Draw:Owner's Equity,Equity,,"2,820.00  "
+3110,Owners Draw:Personal,Equity,,"39,421.59  "
+3120,Owners Draw:Repair & Maintenance,Equity,"7,545.88  ",
+3130,Owners Draw:Self Employment Tax,Equity,,"3,740.34  "
+3140,Owners Draw:Social Security Administration,Equity,,"83,180.00  "
+3150,Owners Draw:Telephone Expense,Equity,"1,757.21  ",
+3160,Owners Draw:Utilities - Waste Management,Equity,886.26  ,
+3170,Owners Draw:Utilities- Cable,Equity,127.55  ,
+3180,Owners Draw:Utilities- SCE,Equity,"6,099.11  ",
+3190,Owners Draw:Utilities- So Cal Gas,Equity,"1,330.63  ",
+3200,Owners Equity,Equity,,"112,005.74  "
+3210,Annuity Fund,Equity,,"13,067.37  "
+4010,Credit Card Rewards,Revenue,,189.61  
+4020,Owners Draw:Owner's Equity:Income-EDD,Revenue,,"48,762.34  "
+4030,Artist Revenue:Artist Revenue,Revenue,,15.00  
+4040,Merchandise,Revenue,,81.90  
+4050,Sales,Revenue,,"2,030.54  "
+4060,Stripe Activity,Revenue,,761.30  
+5010,Money Market 6225,Expense,,0.53  
+5020,House Repair Funds,Expense,0.00  ,
+5030,Prepaid Auto Lease,Expense,0.00  ,
+5040,Profit Funds,Expense,0.00  ,
+5050,Robinhood Brokerage,Expense,"4,976.69  ",
+5060,Tax Reserve Fund,Expense,250.00  ,
+5070,Undeposited Funds,Expense,0.00  ,
+5080,Furniture and Equipment,Expense,566.08  ,
+5090,Travel Trailer,Expense,"8,500.00  ",
+5100,Chase Edge 3677,Expense,,0.00  
+5110,Chase Sapphire - 9053,Expense,,0.00  
+5120,Owner Contribution,Expense,,"21,795.90  "
+5130,Accounting Fees,Expense,650.00  ,
+5140,Advertising and Promotion,Expense,187.20  ,
+5150,Automobile Expense,Expense,390.01  ,
+5160,Automobile Expense:Auto Gasoline,Expense,"1,242.82  ",
+5170,Automobile Expense:Auto Insurance,Expense,"2,465.19  ",
+5180,Automobile Expense:Auto Repair & Maintenance,Expense,152.93  ,
+5190,Automobile Expense:Parking,Expense,15.00  ,
+5200,Business Coach,Expense,"1,389.00  ",
+5210,Computer and Internet Expenses,Expense,747.70  ,
+5220,Continued Education,Expense,356.99  ,
+5230,Dues & Subscriptions,Expense,"6,224.78  ",
+5240,Health Insurance,Expense,842.11  ,
+5250,Interest Expense,Expense,"1,145.01  ",
+5260,IRS TAX,Expense,,"1,351.00  "
+5270,Meals and Entertainment,Expense,324.11  ,
+5280,Office Supplies,Expense,365.12  ,
+5290,Office Supplies:Art Supplies,Expense,133.53  ,
+5300,Professional Fees,Expense,204.00  ,
+5310,Repairs and Maintenance,Expense,,348.26  
+5320,Software,Expense,435.96  ,
+5330,Tax and License,Expense,342.00  ,
+5340,Travel Expense,Expense,11.95  ,
+5350,Interest,Expense,,47.10  
+5360,Ask My Accountant,Expense,,"13,086.18  "

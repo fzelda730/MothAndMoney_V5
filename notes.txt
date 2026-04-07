@@ -9,6 +9,7 @@ source app/.venv/bin/activate
 streamlit run app/app.py
 
 # By default the app uses bundled demo data (USE_SAMPLE_DATA=true). No database is required.
+# For database-backed data only, set USE_SAMPLE_DATA=false and configure PostgreSQL below.
 
 # ---
 # First-time Python setup (only once), if you do not have a venv yet:
@@ -41,6 +42,7 @@ streamlit run app/app.py
 # From repo root with app/.venv activated and app/.env configured for Postgres:
 #   python scripts/reset_database.py              # prompts: type YES to confirm
 #   python scripts/reset_database.py --yes        # no prompt
-#   python scripts/reset_database.py --yes --with-seed   # also load seed_demo.sql
+#   python scripts/reset_database.py --yes --with-default-seed   # optional studio + chart
+#   python scripts/reset_database.py --yes --with-seed             # default seed + seed_demo.sql
 
 # Requires psql on your PATH. Stop Streamlit first if it holds DB connections.

@@ -503,6 +503,11 @@ with tab_gl:
     </p>
     """)
 
+    if not CHART_OF_ACCOUNTS:
+        st.info(
+            "No chart of accounts in the database yet. Complete Trial Balance onboarding "
+            "or run optional seed scripts."
+        )
     current_type = None
     for acct in CHART_OF_ACCOUNTS:
         if acct["type"] != current_type:

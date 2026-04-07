@@ -185,31 +185,31 @@ LEDGER_SUMMARY = {
 
 CHART_OF_ACCOUNTS = [
     # Assets
-    {"number": "1100", "name": "Cash",                          "type": "Asset",   "subtype": "Current Asset"},
-    {"number": "1200", "name": "Accounts Receivable",           "type": "Asset",   "subtype": "Current Asset"},
-    {"number": "1300", "name": "Art Inventory",                 "type": "Asset",   "subtype": "Inventory"},
-    {"number": "1400", "name": "Digital Assets",                "type": "Asset",   "subtype": "Current Asset"},
-    {"number": "1600", "name": "Equipment",                     "type": "Asset",   "subtype": "Fixed Asset"},
+    {"id": "coa-demo-1100", "number": "1100", "name": "Cash",                          "type": "Asset",   "subtype": "Current Asset"},
+    {"id": "coa-demo-1200", "number": "1200", "name": "Accounts Receivable",           "type": "Asset",   "subtype": "Current Asset"},
+    {"id": "coa-demo-1300", "number": "1300", "name": "Art Inventory",                 "type": "Asset",   "subtype": "Inventory"},
+    {"id": "coa-demo-1400", "number": "1400", "name": "Digital Assets",                "type": "Asset",   "subtype": "Current Asset"},
+    {"id": "coa-demo-1600", "number": "1600", "name": "Equipment",                     "type": "Asset",   "subtype": "Fixed Asset"},
     # Liabilities
-    {"number": "2100", "name": "Accounts Payable",              "type": "Liability","subtype": "Current Liability"},
-    {"number": "2200", "name": "Credit Card Payable",           "type": "Liability","subtype": "Current Liability"},
-    {"number": "2300", "name": "Tax Reserve",                   "type": "Liability","subtype": "Current Liability"},
+    {"id": "coa-demo-2100", "number": "2100", "name": "Accounts Payable",              "type": "Liability","subtype": "Current Liability"},
+    {"id": "coa-demo-2200", "number": "2200", "name": "Credit Card Payable",           "type": "Liability","subtype": "Current Liability"},
+    {"id": "coa-demo-2300", "number": "2300", "name": "Tax Reserve",                   "type": "Liability","subtype": "Current Liability"},
     # Equity
-    {"number": "3100", "name": "Owner Equity",                  "type": "Equity",  "subtype": "Owner's Equity"},
-    {"number": "3200", "name": "Retained Earnings",             "type": "Equity",  "subtype": "Retained Earnings"},
+    {"id": "coa-demo-3100", "number": "3100", "name": "Owner Equity",                  "type": "Equity",  "subtype": "Owner's Equity"},
+    {"id": "coa-demo-3200", "number": "3200", "name": "Retained Earnings",             "type": "Equity",  "subtype": "Retained Earnings"},
     # Income
-    {"number": "4100", "name": "Gallery Sales (Direct)",        "type": "Income",  "subtype": "Operating Income"},
-    {"number": "4200", "name": "Online Atelier / Digital Shop", "type": "Income",  "subtype": "Operating Income"},
-    {"number": "4300", "name": "Consultancy & Curatorial",      "type": "Income",  "subtype": "Operating Income"},
-    {"number": "4400", "name": "Commission Income",             "type": "Income",  "subtype": "Operating Income"},
+    {"id": "coa-demo-4100", "number": "4100", "name": "Gallery Sales (Direct)",        "type": "Income",  "subtype": "Operating Income"},
+    {"id": "coa-demo-4200", "number": "4200", "name": "Online Atelier / Digital Shop", "type": "Income",  "subtype": "Operating Income"},
+    {"id": "coa-demo-4300", "number": "4300", "name": "Consultancy & Curatorial",      "type": "Income",  "subtype": "Operating Income"},
+    {"id": "coa-demo-4400", "number": "4400", "name": "Commission Income",             "type": "Income",  "subtype": "Operating Income"},
     # Expenses
-    {"number": "5100", "name": "Studio Rent & Utilities",       "type": "Expense", "subtype": "Overhead"},
-    {"number": "5200", "name": "Material Supplies",             "type": "Expense", "subtype": "Cost of Goods"},
-    {"number": "5300", "name": "Marketing & Exhibition Fees",   "type": "Expense", "subtype": "Marketing"},
-    {"number": "5400", "name": "Professional Staff",            "type": "Expense", "subtype": "Payroll"},
-    {"number": "5500", "name": "Software & Subscriptions",      "type": "Expense", "subtype": "Overhead"},
-    {"number": "5600", "name": "Shipping & Logistics",          "type": "Expense", "subtype": "Cost of Goods"},
-    {"number": "5700", "name": "Travel & Dining",               "type": "Expense", "subtype": "Travel"},
+    {"id": "coa-demo-5100", "number": "5100", "name": "Studio Rent & Utilities",       "type": "Expense", "subtype": "Overhead"},
+    {"id": "coa-demo-5200", "number": "5200", "name": "Material Supplies",             "type": "Expense", "subtype": "Cost of Goods"},
+    {"id": "coa-demo-5300", "number": "5300", "name": "Marketing & Exhibition Fees",   "type": "Expense", "subtype": "Marketing"},
+    {"id": "coa-demo-5400", "number": "5400", "name": "Professional Staff",            "type": "Expense", "subtype": "Payroll"},
+    {"id": "coa-demo-5500", "number": "5500", "name": "Software & Subscriptions",      "type": "Expense", "subtype": "Overhead"},
+    {"id": "coa-demo-5600", "number": "5600", "name": "Shipping & Logistics",          "type": "Expense", "subtype": "Cost of Goods"},
+    {"id": "coa-demo-5700", "number": "5700", "name": "Travel & Dining",               "type": "Expense", "subtype": "Travel"},
 ]
 
 # ============================================================
@@ -392,13 +392,6 @@ CC_PREVIEW_ROWS = [
     {"date": "Oct 22, 2023", "payee": "Amazon Web Services", "sub": "Cloud Infrastructure",         "account": "Hosting Services","amount": -1240.12},
     {"date": "Oct 21, 2023", "payee": "Starbucks #4829",     "sub": "Travel & Dining",              "account": "Meals & Ent.",    "amount": -12.45},
     {"date": "Oct 19, 2023", "payee": "Delta Airlines",      "sub": "NY to SF Flight",              "account": "Travel",          "amount": -489.00},
-]
-
-# Sample bank statement live preview rows
-BANK_PREVIEW_ROWS = [
-    {"date": "10/24/2023", "type": "DEBIT",  "payee": "Paper Supply Co",     "amount": -246.12, "coa": "Materials"},
-    {"date": "10/25/2023", "type": "CREDIT", "payee": "Client Deposit: Smith","amount": 1500.00, "coa": "Consulting"},
-    {"date": "10/26/2023", "type": "DEBIT",  "payee": "Studio Rent",          "amount": -2000.00,"coa": "Operations"},
 ]
 
 # ============================================================

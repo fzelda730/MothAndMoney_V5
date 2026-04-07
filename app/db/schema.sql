@@ -1,6 +1,7 @@
 -- ============================================================
--- Moth and Money V4 — PostgreSQL Schema
+-- Moth and Money V4 — PostgreSQL Schema (DDL only, no seed data)
 -- Run once against a fresh database: moth_and_money
+-- Optional: app/db/seed_default_chart.sql (studio + chart), then seed_demo.sql
 -- ============================================================
 
 -- Extensions
@@ -69,11 +70,6 @@ CREATE TABLE studio_profile (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed one profile row on first run (idempotent re-apply of schema)
-INSERT INTO studio_profile (artist_name, studio_name)
-SELECT 'Julian Voss', 'The Digital Atelier'
-WHERE NOT EXISTS (SELECT 1 FROM studio_profile LIMIT 1);
-
 -- ============================================================
 -- CHART OF ACCOUNTS
 -- ============================================================
@@ -87,42 +83,6 @@ CREATE TABLE chart_of_accounts (
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Pre-seeded Creatives Chart of Accounts
-INSERT INTO chart_of_accounts (account_number, account_name, account_type, account_subtype) VALUES
--- Assets (1000s)
-('1100', 'Cash',                         'asset',   'current_asset'),
-('1200', 'Accounts Receivable',          'asset',   'current_asset'),
-('1300', 'Art Inventory',                'asset',   'inventory'),
-('1400', 'Digital Assets',               'asset',   'current_asset'),
-('1500', 'Prepaid Expenses',             'asset',   'current_asset'),
-('1600', 'Equipment',                    'asset',   'fixed_asset'),
--- Liabilities (2000s)
-('2100', 'Accounts Payable',             'liability','current_liability'),
-('2200', 'Credit Card Payable',          'liability','current_liability'),
-('2300', 'Tax Reserve',                  'liability','current_liability'),
-('2400', 'Deferred Revenue',             'liability','current_liability'),
--- Equity (3000s)
-('3100', 'Owner Equity',                 'equity',  'owners_equity'),
-('3200', 'Retained Earnings',            'equity',  'retained_earnings'),
--- Income (4000s)
-('4100', 'Gallery Sales (Direct)',       'income',  'operating_income'),
-('4200', 'Online Atelier / Digital Shop','income',  'operating_income'),
-('4300', 'Consultancy & Curatorial',     'income',  'operating_income'),
-('4400', 'Commission Income',            'income',  'operating_income'),
-('4500', 'Licensing & Royalties',        'income',  'operating_income'),
-('4900', 'Other Income',                 'income',  'other_income'),
--- Expenses (5000s)
-('5100', 'Studio Rent & Utilities',      'expense', 'overhead'),
-('5200', 'Material Supplies',            'expense', 'cost_of_goods'),
-('5300', 'Marketing & Exhibition Fees',  'expense', 'marketing'),
-('5400', 'Professional Staff',           'expense', 'payroll'),
-('5500', 'Software & Subscriptions',     'expense', 'overhead'),
-('5600', 'Shipping & Logistics',         'expense', 'cost_of_goods'),
-('5700', 'Travel & Dining',              'expense', 'travel'),
-('5800', 'Photography & Documentation',  'expense', 'marketing'),
-('5900', 'Other Expenses',               'expense', 'other_expense')
-ON CONFLICT (account_number) DO NOTHING;
 
 -- ============================================================
 -- BANKS

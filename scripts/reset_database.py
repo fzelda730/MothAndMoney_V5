@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Drop and recreate the PostgreSQL database from app/.env, then apply app/db/schema.sql.
+Drop and recreate the PostgreSQL database from app/.env, then apply app/db/schema.sql (DDL only).
 
-Use before manual testing when you want a clean slate. After reset, only schema.sql
-defaults exist (studio profile + chart of accounts).
-
-Optional: --with-seed runs app/db/seed_demo.sql (demo banks, accounts, transactions).
+Optional seeds:
+  --with-default-seed   studio_profile + default Creatives chart (app/db/seed_default_chart.sql)
+  --with-seed           also run app/db/seed_demo.sql (requires chart; implies --with-default-seed)
 
 Requires: psql on PATH, psycopg2, python-dotenv (app venv), app/.env with DB_* or DATABASE_URL.
 
 Usage (from repo root, venv active):
   python scripts/reset_database.py
   python scripts/reset_database.py --yes
+  python scripts/reset_database.py --yes --with-default-seed
   python scripts/reset_database.py --yes --with-seed
 """
 
@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = REPO_ROOT / "app"
 ENV_FILE = APP_DIR / ".env"
 SCHEMA_SQL = APP_DIR / "db" / "schema.sql"
+DEFAULT_SEED_SQL = APP_DIR / "db" / "seed_default_chart.sql"
 SEED_SQL = APP_DIR / "db" / "seed_demo.sql"
 
 
@@ -140,7 +141,7 @@ def run_psql_file(cfg: dict, sql_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Drop and recreate the Moth and Money database, then apply schema.sql."
+        description="Drop and recreate the Moth and Money database, then apply schema.sql (DDL only)."
     )
     parser.add_argument(
         "-y",
@@ -149,9 +150,14 @@ def main() -> None:
         help="Do not ask for confirmation",
     )
     parser.add_argument(
+        "--with-default-seed",
+        action="store_true",
+        help="Run app/db/seed_default_chart.sql (studio + default chart)",
+    )
+    parser.add_argument(
         "--with-seed",
         action="store_true",
-        help="Also run app/db/seed_demo.sql (demo accounts and transactions)",
+        help="Run seed_demo.sql (implies --with-default-seed; demo banks and transactions)",
     )
     args = parser.parse_args()
 
@@ -171,14 +177,26 @@ def main() -> None:
             print("Aborted.")
             sys.exit(1)
 
+    with_default = args.with_default_seed or args.with_seed
+    with_demo = args.with_seed
+
     print(f"Dropping and creating database {dbname!r}...")
     drop_and_create(cfg)
     print(f"Applying {SCHEMA_SQL.relative_to(REPO_ROOT)}...")
     run_psql_file(cfg, SCHEMA_SQL)
-    if args.with_seed:
+    if with_default:
+        if not DEFAULT_SEED_SQL.is_file():
+            sys.exit(f"Missing {DEFAULT_SEED_SQL}")
+        print(f"Applying {DEFAULT_SEED_SQL.relative_to(REPO_ROOT)}...")
+        run_psql_file(cfg, DEFAULT_SEED_SQL)
+    if with_demo:
         print(f"Applying {SEED_SQL.relative_to(REPO_ROOT)}...")
         run_psql_file(cfg, SEED_SQL)
-    print("Done. Set USE_SAMPLE_DATA=false in app/.env and run: streamlit run app/app.py")
+
+    print(
+        "Done. For database-backed UI: set USE_SAMPLE_DATA=false in app/.env and run: "
+        "streamlit run app/app.py"
+    )
 
 
 if __name__ == "__main__":
