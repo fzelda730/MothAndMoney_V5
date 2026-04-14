@@ -331,23 +331,23 @@ BALANCE_SHEET = {
 # Trial Balance (for Reports tab)
 TRIAL_BALANCE_REPORT = [
     {
-        "bank_account": "1020-4492-001", "coa_number": "1100",
+        "coa_number": "1100",
         "coa": "1100 - Cash", "debits": 12450.00, "credits": None,
     },
     {
-        "bank_account": "1020-4492-001", "coa_number": "1200",
+        "coa_number": "1200",
         "coa": "1200 - Receivables", "debits": 4200.50, "credits": None,
     },
     {
-        "bank_account": "9901-3321-882", "coa_number": "2100",
+        "coa_number": "2100",
         "coa": "2100 - Payables", "debits": None, "credits": 8100.00,
     },
     {
-        "bank_account": "9901-3321-882", "coa_number": "3100",
+        "coa_number": "3100",
         "coa": "3100 - Equity", "debits": None, "credits": 5000.00,
     },
     {
-        "bank_account": "1020-4492-001", "coa_number": "4100",
+        "coa_number": "4100",
         "coa": "4100 - Sales", "debits": None, "credits": 3550.50,
     },
 ]
@@ -378,20 +378,13 @@ IMPORT_TEMPLATES = [
         "accounts":      ["Artist Rewards Visa ****1002"],
         "column_map": {
             "date":             "Date",
+            "transaction_type": "— Not used —",
             "payee":            "Description",
-            "account":          "Account",
             "amount":           "Amount",
+            "account":          "Account",
             "description":      "Note",
         },
     },
-]
-
-# Sample CC live preview rows
-CC_PREVIEW_ROWS = [
-    {"date": "Oct 24, 2023", "payee": "Adobe Systems Inc.",  "sub": "Creative Cloud Subscription", "account": "Software & Apps", "amount": -54.99},
-    {"date": "Oct 22, 2023", "payee": "Amazon Web Services", "sub": "Cloud Infrastructure",         "account": "Hosting Services","amount": -1240.12},
-    {"date": "Oct 21, 2023", "payee": "Starbucks #4829",     "sub": "Travel & Dining",              "account": "Meals & Ent.",    "amount": -12.45},
-    {"date": "Oct 19, 2023", "payee": "Delta Airlines",      "sub": "NY to SF Flight",              "account": "Travel",          "amount": -489.00},
 ]
 
 # ============================================================

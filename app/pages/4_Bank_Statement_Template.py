@@ -17,25 +17,15 @@ from data.bank_statement_csv import (
     bank_statement_csv_headers_from_bytes,
     build_bank_statement_preview_rows,
     suggest_bank_column_mapping,
-    unique_payee_candidates_from_bytes,
 )
 from data.providers import (
-    chart_of_accounts,
+    bank_import_template_by_id,
     db_ready,
     import_templates,
-    payee_rules_for_template,
-    persist_payee_rule,
     save_bank_statement_template_to_db,
+    update_bank_statement_template_in_db,
 )
 from db.connection import use_sample_data
-
-COA_SKIP_LABEL = "— Skip (no rule) —"
-DEMO_PAYEE_RULES_KEY = "bank_payee_demo_rules"
-
-
-def _payee_rule_widget_key(tpl_id: str, csv_sig: str, norm: str) -> str:
-    h = hashlib.sha256(f"{tpl_id}|{csv_sig}|{norm}".encode()).hexdigest()[:16]
-    return f"bank_payee_coa_{h}"
 
 st.set_page_config(
     page_title="Bank Statement Template | Moth and Money",
@@ -72,16 +62,52 @@ bank_hdr_list: list[str] = []
 bank_hdr_idx = 0
 bank_raw: bytes | None = None
 
+bank_tmpls_bs = [t for t in import_templates() if t.get("type") == "bank_statement"]
+tpl_id_options = [""] + [t["id"] for t in bank_tmpls_bs]
+tpl_id_label = {t["id"]: f'{t.get("name") or t["id"]}' for t in bank_tmpls_bs}
+
 # ── Left: Template Identity + Upload + Column Mapping ─────────────────────────
 with col_left:
     st.html("""
     <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:0.95rem;
                margin-bottom:0.25rem;">Template Identity</h4>
     <p style="font-size:0.75rem;color:#636262;margin-bottom:1rem;">
-        Provide a descriptive name for your template to reuse it across monthly
-        reconciled statements.
+        Choose an existing bank template to view and edit, or start a new one. Name and column
+        mapping apply to the selected template when you save.
     </p>
     """)
+
+    st.html('<label class="mm-settings-label">Saved template</label>')
+    tpl_sel = st.selectbox(
+        "bank_tpl_selector",
+        options=tpl_id_options,
+        format_func=lambda x: "— New template —" if x == "" else tpl_id_label.get(x, x),
+        label_visibility="collapsed",
+        key="bank_tpl_selector",
+    )
+
+    if tpl_sel != st.session_state.get("_bank_tpl_synced_selector"):
+        st.session_state["_bank_tpl_synced_selector"] = tpl_sel
+        if not tpl_sel:
+            st.session_state["bank_tmpl_name"] = ""
+            for fk in BANK_MAP_FIELD_KEYS:
+                st.session_state[f"tpl_bank_{fk}"] = BANK_COLUMN_NOT_USED
+                st.session_state[f"tpl_bank_manual_{fk}"] = ""
+        else:
+            loaded = bank_import_template_by_id(tpl_sel)
+            if loaded:
+                st.session_state["bank_tmpl_name"] = loaded.get("name") or ""
+                cm = loaded.get("column_map") or {}
+                for fk in BANK_MAP_FIELD_KEYS:
+                    v = cm.get(fk)
+                    if isinstance(v, str) and v.strip() and v != BANK_COLUMN_NOT_USED:
+                        st.session_state[f"tpl_bank_{fk}"] = v
+                        st.session_state[f"tpl_bank_manual_{fk}"] = v.strip()
+                    else:
+                        st.session_state[f"tpl_bank_{fk}"] = BANK_COLUMN_NOT_USED
+                        st.session_state[f"tpl_bank_manual_{fk}"] = ""
+            st.session_state["bank_stmt_template_id"] = tpl_sel
+            st.session_state["bank_payee_tpl_pick"] = tpl_sel
 
     st.html('<label class="mm-settings-label">Template Name</label>')
     st.text_input(
@@ -151,18 +177,16 @@ with col_left:
         ("📝", "description", "Description"),
     ]
 
-    if uploaded is None:
-        st.caption("Upload a CSV to see its column headings here.")
-    elif not bank_hdr_list:
-        st.caption(
-            "Could not detect a header row. Ensure the first non-empty row contains column titles."
-        )
-    else:
+    if bank_hdr_list:
         st.caption(
             "Each dropdown lists columns from your file. Use “Not used” for fields your file omits."
         )
-        opts = [BANK_COLUMN_NOT_USED] + bank_hdr_list
         for emoji, map_key, field in BANK_TEMPLATE_FIELDS:
+            sk = f"tpl_bank_{map_key}"
+            opts = [BANK_COLUMN_NOT_USED] + bank_hdr_list
+            cur = st.session_state.get(sk, BANK_COLUMN_NOT_USED)
+            if cur not in opts and cur != BANK_COLUMN_NOT_USED and isinstance(cur, str):
+                opts = [BANK_COLUMN_NOT_USED, cur] + [h for h in bank_hdr_list if h != cur]
             col_icon, col_label, col_select = st.columns([0.3, 1.2, 2], gap="small")
             with col_icon:
                 st.html(f"<div style='padding-top:0.6rem;font-size:1.1rem;'>{emoji}</div>")
@@ -172,7 +196,6 @@ with col_left:
                     f"color:#1a1c1c;'>{field}</div>"
                 )
             with col_select:
-                sk = f"tpl_bank_{map_key}"
                 if sk not in st.session_state or st.session_state[sk] not in opts:
                     st.session_state[sk] = BANK_COLUMN_NOT_USED
                 st.selectbox(
@@ -181,128 +204,39 @@ with col_left:
                     label_visibility="collapsed",
                     key=sk,
                 )
+    elif not bank_hdr_list:
+        if uploaded is not None:
+            st.caption(
+                "Could not detect a header row. Ensure the first non-empty row contains column titles."
+            )
+        else:
+            st.caption(
+                "Upload a CSV to pick columns from a sample, or type the exact header text from your bank file."
+            )
+            for emoji, map_key, field in BANK_TEMPLATE_FIELDS:
+                mk = f"tpl_bank_manual_{map_key}"
+                col_icon, col_label, col_inp = st.columns([0.3, 1.2, 2], gap="small")
+                with col_icon:
+                    st.html(f"<div style='padding-top:0.6rem;font-size:1.1rem;'>{emoji}</div>")
+                with col_label:
+                    st.html(
+                        f"<div style='padding-top:0.7rem;font-size:0.8rem;font-weight:600;"
+                        f"color:#1a1c1c;'>{field}</div>"
+                    )
+                with col_inp:
+                    st.text_input(
+                        f"bank_manual_{field}",
+                        placeholder=BANK_COLUMN_NOT_USED,
+                        label_visibility="collapsed",
+                        key=mk,
+                    )
 
     # ── Payee Intelligence (inline) ───────────────────────────────────────────
     st.html("<div style='height:1rem'></div>")
-    with st.expander("✨ Payee Intelligence — Auto-categorize vendors", expanded=False):
-        bank_tmpls = [t for t in import_templates() if t.get("type") == "bank_statement"]
-        if bank_tmpls:
-            id_to_name = {t["id"]: t.get("name") or t["id"] for t in bank_tmpls}
-            tpl_ids = [t["id"] for t in bank_tmpls]
-            preferred = st.session_state.get("bank_stmt_template_id")
-            if preferred in tpl_ids and "bank_payee_tpl_pick" not in st.session_state:
-                st.session_state["bank_payee_tpl_pick"] = preferred
-            tpl_sel = st.selectbox(
-                "Payee rules apply to this template",
-                options=tpl_ids,
-                format_func=lambda i, m=id_to_name: m.get(i, i),
-                key="bank_payee_tpl_pick",
-            )
-        else:
-            tpl_sel = (st.session_state.get("bank_stmt_template_id") or "").strip()
-            st.caption(
-                "Save a bank statement template using the button below, then reopen this page "
-                "to pick it here—or your last saved template id will be used if present."
-            )
-
-        csv_sig = st.session_state.get("bank_csv_hdr_sig") or "no_csv"
-        column_map_pi = {
-            fk: st.session_state.get(f"tpl_bank_{fk}", BANK_COLUMN_NOT_USED)
-            for fk in BANK_MAP_FIELD_KEYS
-        }
-        pay_col = column_map_pi.get("payee")
-        desc_col = column_map_pi.get("description")
-        if pay_col == BANK_COLUMN_NOT_USED and desc_col == BANK_COLUMN_NOT_USED:
-            st.caption("Map Payee or Description in Column Mapping to discover payee text from your CSV.")
-        elif bank_raw is None or not bank_hdr_list:
-            st.caption("Upload a CSV to list distinct payees from your file (up to 100, first 200 rows).")
-        else:
-            candidates = unique_payee_candidates_from_bytes(
-                bank_raw,
-                bank_hdr_list,
-                bank_hdr_idx,
-                column_map_pi,
-                BANK_COLUMN_NOT_USED,
-            )
-            if not candidates:
-                st.caption("No payee or description values found in the scanned rows.")
-            else:
-                if use_sample_data():
-                    st.caption(
-                        "Demo mode: rules are kept in this session only (not PostgreSQL). "
-                        "They are still used if you add a bank import that calls the resolver."
-                    )
-                else:
-                    st.caption(
-                        "Choose a chart account per payee. Patterns are stored normalized (case/spacing-insensitive). "
-                        "Skip removes a saved rule for that payee."
-                    )
-
-                coa_rows = chart_of_accounts()
-                coa_labels = [COA_SKIP_LABEL]
-                coa_ids: list[str | None] = [None]
-                for r in coa_rows:
-                    cid = (r.get("id") or "").strip()
-                    if not cid:
-                        continue
-                    coa_labels.append(f'{r["number"]} - {r["name"]}')
-                    coa_ids.append(cid)
-
-                if use_sample_data():
-                    rules_map: dict[str, str] = (
-                        st.session_state.get(DEMO_PAYEE_RULES_KEY, {}).get(tpl_sel, {}) or {}
-                    )
-                else:
-                    rules_map = {
-                        r["payee_pattern"]: r["coa_id"]
-                        for r in payee_rules_for_template(tpl_sel)
-                    }
-
-                for display, norm in candidates:
-                    sk = _payee_rule_widget_key(tpl_sel or "none", csv_sig, norm)
-                    if sk not in st.session_state:
-                        cid_existing = rules_map.get(norm)
-                        default_i = 0
-                        if cid_existing and cid_existing in coa_ids:
-                            default_i = coa_ids.index(cid_existing)
-                        st.session_state[sk] = default_i
-                    st.selectbox(
-                        display[:120],
-                        options=list(range(len(coa_labels))),
-                        format_func=lambda i, labels=coa_labels: labels[i],
-                        key=sk,
-                        label_visibility="visible",
-                    )
-
-                if st.button("Save payee rules", key="bank_save_payee_rules"):
-                    if not (tpl_sel or "").strip():
-                        st.warning("Select or save a bank template before saving payee rules.")
-                    else:
-                        n_ok = 0
-                        tpl_key = tpl_sel or "none"
-                        for _display, norm in candidates:
-                            sk = _payee_rule_widget_key(tpl_key, csv_sig, norm)
-                            idx = int(st.session_state.get(sk, 0))
-                            if idx < 0 or idx >= len(coa_ids):
-                                idx = 0
-                            chosen = coa_ids[idx]
-                            if use_sample_data():
-                                all_d = st.session_state.setdefault(DEMO_PAYEE_RULES_KEY, {})
-                                bucket = all_d.setdefault(tpl_sel, {})
-                                if chosen:
-                                    bucket[norm] = chosen
-                                    n_ok += 1
-                                else:
-                                    bucket.pop(norm, None)
-                            else:
-                                persist_payee_rule(tpl_sel, norm, chosen)
-                        if use_sample_data():
-                            st.success(
-                                f"Payee rules updated in session (demo): {n_ok} with a COA, "
-                                "others skipped or cleared."
-                            )
-                        else:
-                            st.success("Payee rules saved to the database.")
+    st.info(
+        "Payee-to-chart rules are managed per bank or card account on the **Ledger** page, not on this "
+        "template screen. Open **Ledger** from the sidebar after selecting the working account."
+    )
 
 # ── Right: Live Preview ───────────────────────────────────────────────────────
 with col_right:
@@ -383,6 +317,16 @@ with col_right:
     </div>
     """)
 
+    edit_sel = (st.session_state.get("bank_tpl_selector") or "").strip()
+    if edit_sel:
+        st.markdown("---")
+        st.subheader("Saved template (database)")
+        rec = bank_import_template_by_id(edit_sel)
+        if rec:
+            st.caption(f"Template id: `{rec['id']}` · type: {rec.get('type', 'bank_statement')}")
+            st.write("**Column map**")
+            st.json(rec.get("column_map") or {})
+
 st.html("<div style='height:2rem'></div>")
 
 # ── Actions ───────────────────────────────────────────────────────────────────
@@ -396,26 +340,34 @@ with col_save:
         if not name:
             st.warning("Enter a template name before saving.")
         else:
+            if bank_hdr_list:
+                column_map = {
+                    k: st.session_state.get(f"tpl_bank_{k}") or BANK_COLUMN_NOT_USED
+                    for k in BANK_MAP_FIELD_KEYS
+                }
+            else:
+                column_map = {
+                    k: (st.session_state.get(f"tpl_bank_manual_{k}") or "").strip()
+                    or BANK_COLUMN_NOT_USED
+                    for k in BANK_MAP_FIELD_KEYS
+                }
+            sel_save = (st.session_state.get("bank_tpl_selector") or "").strip()
             if use_sample_data():
                 st.warning(
                     "Demo mode (USE_SAMPLE_DATA=true): the template is not stored in PostgreSQL. "
                     "Set USE_SAMPLE_DATA=false in app/.env to save to the database."
                 )
+            elif sel_save:
+                if update_bank_statement_template_in_db(sel_save, name, column_map):
+                    st.success("Bank statement template updated in the database.")
+                else:
+                    st.error("Could not update template (check id and database connection).")
             else:
-                column_map = {
-                    k: st.session_state.get(f"tpl_bank_{k}") or BANK_COLUMN_NOT_USED
-                    for k in (
-                        "date",
-                        "transaction_type",
-                        "payee",
-                        "amount",
-                        "chart_of_account",
-                        "description",
-                    )
-                }
                 new_id = save_bank_statement_template_to_db(name, column_map)
                 if new_id:
                     st.session_state["bank_stmt_template_id"] = new_id
                     st.session_state["bank_payee_tpl_pick"] = new_id
+                    # Do not set st.session_state["bank_tpl_selector"] here: Streamlit forbids
+                    # changing a widget-bound key after that widget has been rendered this run.
                 st.success("Bank statement template saved to the database.")
             st.switch_page("pages/5_Credit_Card_Config.py")

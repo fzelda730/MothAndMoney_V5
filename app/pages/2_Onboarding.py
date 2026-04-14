@@ -64,26 +64,10 @@ st.html("""
 </div>
 """)
 
-# ── 4 option cards ────────────────────────────────────────────────────────────
+# ── Option cards: Bank stmt template → Credit card → Bank accounts → Trial balance ─
 col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    st.html("""
-    <div class="mm-option-card">
-        <div class="mm-option-icon">
-            <span class="material-symbols-outlined">upload_file</span>
-        </div>
-        <div class="mm-option-title">Upload Trial Balance</div>
-        <div class="mm-option-desc">
-            Import your historical balances via .csv to establish your opening ledger
-            positions. Recommended for established studios.
-        </div>
-    </div>
-    """)
-    if st.button("SELECT CSV FILE →", key="go_trial_balance", use_container_width=True):
-        st.switch_page("pages/3_Trial_Balance.py")
-
-with col2:
     st.html("""
     <div class="mm-option-card">
         <div class="mm-option-icon">
@@ -98,11 +82,7 @@ with col2:
     if st.button("CONFIGURE MAPPING →", key="go_bank_stmt", use_container_width=True):
         st.switch_page("pages/4_Bank_Statement_Template.py")
 
-st.html("<div style='height:1.5rem'></div>")
-
-col3, col4 = st.columns(2, gap="large")
-
-with col3:
+with col2:
     st.html("""
     <div class="mm-option-card">
         <div class="mm-option-icon">
@@ -118,7 +98,48 @@ with col3:
     if st.button("INGEST DATA →", key="go_cc", use_container_width=True):
         st.switch_page("pages/5_Credit_Card_Config.py")
 
+st.html("<div style='height:1.5rem'></div>")
+
+col3, col4 = st.columns(2, gap="large")
+
+with col3:
+    st.html("""
+    <div class="mm-option-card">
+        <div class="mm-option-icon">
+            <span class="material-symbols-outlined">wallet</span>
+        </div>
+        <div class="mm-option-title">Bank &amp; Card Accounts</div>
+        <div class="mm-option-desc">
+            Register checking, savings, cash, and credit card accounts with last four digits
+            and the import template used for ledger mapping. Required before using the Ledger
+            with PostgreSQL.
+        </div>
+    </div>
+    """)
+    if st.button("REGISTER ACCOUNTS →", key="go_bank_accounts", use_container_width=True):
+        st.switch_page("pages/9_Bank_Accounts.py")
+
 with col4:
+    st.html("""
+    <div class="mm-option-card">
+        <div class="mm-option-icon">
+            <span class="material-symbols-outlined">upload_file</span>
+        </div>
+        <div class="mm-option-title">Upload Trial Balance</div>
+        <div class="mm-option-desc">
+            Import your historical balances via .csv to establish your opening ledger
+            positions. Recommended for established studios.
+        </div>
+    </div>
+    """)
+    if st.button("SELECT CSV FILE →", key="go_trial_balance", use_container_width=True):
+        st.switch_page("pages/3_Trial_Balance.py")
+
+st.html("<div style='height:1.5rem'></div>")
+
+col_payee_a, col_payee_b = st.columns(2, gap="large")
+
+with col_payee_a:
     st.html("""
     <div class="mm-option-card" style="position:relative;">
         <span class="mm-badge-fuzzy" style="position:absolute;top:1rem;right:1rem;">
@@ -140,6 +161,9 @@ with col4:
     </div>
     """)
     st.caption("Configure via Bank Statement or Credit Card template steps above.")
+
+with col_payee_b:
+    st.empty()
 
 st.html("<div style='height:3rem'></div>")
 
@@ -164,7 +188,7 @@ with col_skip:
         st.switch_page("pages/1_Dashboard.py")
 with col_continue:
     if st.button("CONTINUE SETUP →", key="continue_setup", type="primary"):
-        st.switch_page("pages/3_Trial_Balance.py")
+        st.switch_page("pages/4_Bank_Statement_Template.py")
 
 st.html("</div>")
 

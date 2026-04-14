@@ -39,10 +39,17 @@ streamlit run app/app.py
 # ---
 # Reset PostgreSQL for a clean test run (destroys all data in DB_NAME)
 
+python3 ../scripts/reset_database.py --yes
 # From repo root with app/.venv activated and app/.env configured for Postgres:
-#   python scripts/reset_database.py              # prompts: type YES to confirm
-#   python scripts/reset_database.py --yes        # no prompt
-#   python scripts/reset_database.py --yes --with-default-seed   # optional studio + chart
-#   python scripts/reset_database.py --yes --with-seed             # default seed + seed_demo.sql
+#   python ../scripts/reset_database.py              # prompts: type YES to confirm
+#   python ../scripts/reset_database.py --yes        # no prompt
+#   python ../scripts/reset_database.py --yes --with-default-seed   # optional studio + chart
+#   python ../scripts/reset_database.py --yes --with-seed             # default seed + seed_demo.sql
 
 # Requires psql on your PATH. Stop Streamlit first if it holds DB connections.
+
+# ---
+# Future backlog (not implemented): General Ledger double-entry — cash/bank chart leg
+# Each import row stores bank_account_id + one coa_id (category). The offsetting cash COA
+# is not a second stored line. To show full double-entry in GL: map bank_accounts → cash
+# COA and mirror or derive offset lines in the report (separate from GL date sync).

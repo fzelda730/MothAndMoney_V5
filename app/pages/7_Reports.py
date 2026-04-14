@@ -1,7 +1,12 @@
-import streamlit as st
+import csv
+import html
 import sys
+from io import StringIO
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
+
+import streamlit as st
+from typing import Any, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,13 +25,116 @@ from data.sample_data import (
     REPORTS_FISCAL_YEAR_END,
     SAMPLE_ACCOUNT_DETAIL,
 )
-from data.providers import bank_accounts, chart_of_accounts, db_ready, trial_balance_report
+from data.providers import (
+    bank_accounts,
+    chart_of_accounts,
+    db_ready,
+    general_ledger_report,
+    trial_balance_report,
+)
+from db.connection import use_sample_data
+
+
+def _bank_id_for_report_label(label: str, accounts: list[Any]) -> Optional[str]:
+    if label == "All Accounts":
+        return None
+    for a in accounts:
+        if f"{a['account_name']} ****{a['masked']}" == label:
+            return a["id"]
+    return None
 
 
 def _normalize_period(d0, d1):
     if d0 > d1:
         return d1, d0
     return d0, d1
+
+
+def _gl_account_type_banner(coatype: str) -> str:
+    m = {
+        "asset": "ASSET",
+        "liability": "LIABILITY",
+        "equity": "EQUITY",
+        "income": "INCOME",
+        "expense": "EXPENSE",
+    }
+    key = (coatype or "").strip().lower()
+    return f"{m.get(key, 'CHART')} ACCOUNT"
+
+
+def _gl_format_line_date(date_str: str) -> str:
+    try:
+        d = datetime.fromisoformat(str(date_str)[:10]).date()
+        return d.strftime("%b %d, %Y")
+    except (ValueError, TypeError):
+        return str(date_str)
+
+
+def _gl_payee_description(payee: str, description: str) -> str:
+    p, d = (payee or "").strip(), (description or "").strip()
+    if p and d:
+        return f"{p} — {d}"
+    return p or d or "—"
+
+
+def _gl_filter_visible_blocks(blocks: list[dict]) -> list[dict]:
+    """Keep only COAs with beginning balance or period lines (used when a single bank book is selected)."""
+    out = []
+    for b in blocks:
+        beg = float(b.get("beginning_balance") or 0)
+        lines = b.get("lines") or []
+        if abs(beg) > 1e-9 or len(lines) > 0:
+            out.append(b)
+    return out
+
+
+def _gl_rows_with_opening(block: dict, period_start: date) -> list[dict]:
+    """Detail rows: opening balance at start of period, then period transactions."""
+    beg = float(block.get("beginning_balance") or 0)
+    lines = list(block.get("lines") or [])
+    opening = {
+        "date": period_start.isoformat(),
+        "payee": "",
+        "description": "Opening balance",
+        "debit": None,
+        "credit": None,
+        "balance": beg,
+        "is_opening": True,
+    }
+    return [opening] + lines
+
+
+def _gl_report_to_csv(blocks: list[dict], period_start: date) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        ["Account #", "Account name", "Type", "Date", "Payee / description", "Debit", "Credit", "Running"]
+    )
+    for b in blocks:
+        num = b.get("coa_number") or ""
+        name = b.get("coa_name") or ""
+        typ = _gl_account_type_banner(b.get("coa_type") or "")
+        for ln in _gl_rows_with_opening(b, period_start):
+            ds = ln.get("date") or ""
+            if ln.get("is_opening"):
+                pd = "Opening balance"
+            else:
+                pd = _gl_payee_description(ln.get("payee") or "", ln.get("description") or "")
+            deb = ln.get("debit")
+            crd = ln.get("credit")
+            w.writerow(
+                [
+                    num,
+                    name,
+                    typ,
+                    ds,
+                    pd,
+                    f"{deb:.2f}" if deb else "",
+                    f"{crd:.2f}" if crd else "",
+                    f"{float(ln.get('balance') or 0):.2f}",
+                ]
+            )
+    return buf.getvalue()
 
 
 def reports_proration_factor(period_start, period_end):
@@ -112,37 +220,7 @@ BANK_ACCOUNTS = bank_accounts()
 CHART_OF_ACCOUNTS = chart_of_accounts()
 TRIAL_BALANCE_REPORT = trial_balance_report()
 
-# ── Reporting period & bank account filter (demo data) ───────────────────────
-account_options = ["All Accounts"] + [
-    f"{a['account_name']} ****{a['masked']}"
-    for a in BANK_ACCOUNTS if a["account_type"] != "cash"
-]
-
-col_bank, col_dates = st.columns([1, 1], gap="large")
-with col_bank:
-    st.html('<label class="mm-settings-label">Select Account</label>')
-    selected_account = st.selectbox(
-        "report_account", account_options, label_visibility="collapsed"
-    )
-with col_dates:
-    st.html('<label class="mm-settings-label">Reporting period</label>')
-    period_input = st.date_input(
-        "report_period",
-        value=(REPORTS_FISCAL_YEAR_START, REPORTS_FISCAL_YEAR_END),
-        min_value=date(2023, 1, 1),
-        max_value=date(2026, 12, 31),
-        label_visibility="collapsed",
-    )
-
-if isinstance(period_input, tuple) and len(period_input) == 2:
-    period_start, period_end = _normalize_period(period_input[0], period_input[1])
-else:
-    period_start = period_end = period_input
-
-period_label = format_period_header(period_start, period_end)
-pr_factor, overlap_days = reports_proration_factor(period_start, period_end)
-
-st.html("<div style='height:1rem'></div>")
+st.html("<div style='height:0.75rem'></div>")
 
 # ── Report tabs ───────────────────────────────────────────────────────────────
 tab_pl, tab_bs, tab_gl, tab_tb = st.tabs([
@@ -492,53 +570,259 @@ with tab_bs:
         """)
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 3: General Ledger (Chart of Accounts with balances)
+# TAB 3: General Ledger (layout per GLReport_screen.png; uses app sidebar, not mock sidebar)
 # ────────────────────────────────────────────────────────────────────────────────
 with tab_gl:
+    if "gl_report_snapshot" not in st.session_state:
+        st.session_state.gl_report_snapshot = None
+
     st.html("""
-    <h2 style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:800;
-               letter-spacing:-0.02em;margin:0 0 0.5rem;">General Ledger</h2>
-    <p style="color:#636262;margin-bottom:2rem;">
-        Complete Chart of Accounts with current period balances.
-    </p>
+    <div style="margin-bottom:1.75rem;">
+        <p style="font-size:0.65rem;font-weight:700;letter-spacing:0.15em;color:#154212;
+                  margin:0 0 0.35rem 0;text-transform:uppercase;">Reports</p>
+        <h1 style="font-family:'Manrope',sans-serif;font-size:2.25rem;font-weight:800;
+                   letter-spacing:-0.03em;margin:0 0 0.35rem 0;color:#1a1c1c;">
+            General Ledger Report
+        </h1>
+        <p style="font-family:'Manrope',sans-serif;font-size:1rem;font-weight:600;
+                  color:#2d5a27;margin:0 0 0.5rem 0;">
+            Moth and Money Ledger For Creatives
+        </p>
+        <p style="font-size:0.9rem;color:#636262;margin:0;max-width:42rem;line-height:1.5;">
+            A clear, period view of chart-of-accounts activity: beginning balance, each line, and ending balance.
+            Net balance uses debit minus credit. Account filters use lexicographic order—zero-pad numbers when needed.
+        </p>
+    </div>
     """)
+
+    st.caption(
+        "Set the GL period with **START DATE** and **END DATE**, filter by bank book or chart account range "
+        "(optional expander), then **GENERATE REPORT**."
+    )
+    if use_sample_data():
+        st.info(
+            "Demo mode uses sample transactions dated **2024**. A 2025 or 2026 range may show no lines until you "
+            "set **USE_SAMPLE_DATA=false** and load real data in PostgreSQL."
+        )
+
+    gl_account_options = ["All Accounts"] + [
+        f"{a['account_name']} ****{a['masked']}"
+        for a in BANK_ACCOUNTS
+        if a["account_type"] != "cash"
+    ]
+
+    with st.form("gl_report_form"):
+        f1, f2, f3, f4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
+        with f1:
+            gl_d0 = st.date_input(
+                "START DATE",
+                value=REPORTS_FISCAL_YEAR_START,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="gl_form_start",
+            )
+        with f2:
+            gl_d1 = st.date_input(
+                "END DATE",
+                value=REPORTS_FISCAL_YEAR_END,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="gl_form_end",
+            )
+        with f3:
+            gl_bank_pick = st.selectbox(
+                "ACCOUNT FILTER",
+                options=gl_account_options,
+                key="gl_form_bank",
+            )
+        with f4:
+            st.html("<div style='height:0.25rem'></div>")
+            gl_submit = st.form_submit_button("GENERATE REPORT", type="primary", use_container_width=True)
+
+        with st.expander("Advanced: chart account number range (optional)", expanded=False):
+            a1, a2 = st.columns(2)
+            with a1:
+                gl_coa_from = st.text_input(
+                    "Account # from",
+                    placeholder="e.g. 4000",
+                    key="gl_form_coa_from",
+                )
+            with a2:
+                gl_coa_to = st.text_input(
+                    "Account # to",
+                    placeholder="e.g. 4999",
+                    key="gl_form_coa_to",
+                )
+
+    if gl_submit:
+        gl_start, gl_end = _normalize_period(gl_d0, gl_d1)
+        gl_bid = _bank_id_for_report_label(gl_bank_pick, BANK_ACCOUNTS)
+        cf = (gl_coa_from or "").strip() or None
+        ct = (gl_coa_to or "").strip() or None
+        raw_rows = general_ledger_report(gl_start, gl_end, cf, ct, gl_bid)
+        if gl_bank_pick == "All Accounts":
+            visible = raw_rows
+        else:
+            visible = _gl_filter_visible_blocks(raw_rows)
+        st.session_state.gl_report_snapshot = {
+            "rows": visible,
+            "period_start": gl_start,
+            "period_end": gl_end,
+            "bank_label": gl_bank_pick,
+        }
+
+    snap = st.session_state.gl_report_snapshot
 
     if not CHART_OF_ACCOUNTS:
         st.info(
-            "No chart of accounts in the database yet. Complete Trial Balance onboarding "
-            "or run optional seed scripts."
+            "No chart of accounts yet. Complete onboarding or add accounts under **New entry**."
         )
-    current_type = None
-    for acct in CHART_OF_ACCOUNTS:
-        if acct["type"] != current_type:
-            current_type = acct["type"]
-            type_color = {
-                "Asset": "#154212", "Liability": "#71151d",
-                "Equity": "#2d5a27", "Income": "#154212", "Expense": "#636262"
-            }.get(current_type, "#1a1c1c")
+    elif snap is None:
+        st.caption("Choose dates and account scope, then click **GENERATE REPORT**.")
+    elif not snap["rows"]:
+        st.info(
+            "No activity in this period for the selected filters. Try a wider date range or **All Accounts**."
+        )
+    else:
+        dl_col, _, dl_btn = st.columns([1, 4, 1])
+        with dl_btn:
+            csv_data = _gl_report_to_csv(snap["rows"], snap["period_start"])
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name="general_ledger_report.csv",
+                mime="text/csv",
+                key="gl_download_csv",
+                type="primary",
+                use_container_width=True,
+            )
+
+        ps, pe = snap["period_start"], snap["period_end"]
+        ps_s = ps.strftime("%b %d, %Y")
+        pe_s = pe.strftime("%b %d, %Y")
+        ps_h = html.escape(ps_s)
+        pe_h = html.escape(pe_s)
+        st.caption(
+            f"Report range: beginning date {ps_s}, ending date {pe_s}. Bank scope: {snap['bank_label']}. "
+            "Beginning balance (PostgreSQL) = trial balance lines for this chart account (same as Reports ▸ "
+            "Trial Balance: pending and confirmed; debit minus credit; all books when **All Accounts**) plus "
+            "posted transactions (pending/cleared/flagged) with dates before the beginning date. "
+            "Period activity includes every transaction from the beginning date through the ending date, inclusive. "
+            "Ending balance equals beginning balance plus debits minus credits for that range. "
+            "Do not duplicate the same opening in trial balance and as dated transactions."
+        )
+
+        for block in snap["rows"]:
+            num = html.escape(str(block.get("coa_number") or ""))
+            name = html.escape(str(block.get("coa_name") or ""))
+            typ = _gl_account_type_banner(block.get("coa_type") or "")
+            beg = float(block.get("beginning_balance") or 0)
+            end = float(block.get("ending_balance") or 0)
+            disp_lines = _gl_rows_with_opening(block, ps)
+
             st.html(f"""
-            <div style="margin-top:1.5rem;margin-bottom:0.75rem;padding-bottom:0.5rem;
-                        border-bottom:1px solid rgba(194,201,187,0.2);">
-                <span style="font-size:0.65rem;font-weight:800;text-transform:uppercase;
-                             letter-spacing:0.15em;color:{type_color};">{current_type}</span>
+            <div style="margin-top:2rem;padding-top:1.5rem;border-top:1px solid rgba(194,201,187,0.25);">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;
+                            flex-wrap:wrap;">
+                    <div>
+                        <div style="font-family:'Manrope',sans-serif;font-size:1.2rem;font-weight:700;
+                                    color:#1a1c1c;">
+                            <span style="font-family:'Courier New',monospace;font-size:1rem;color:#154212;">
+                                {num}
+                            </span>
+                            <span style="margin-left:0.5rem;">— {name}</span>
+                        </div>
+                        <div style="margin-top:0.35rem;font-size:0.75rem;color:#636262;line-height:1.4;">
+                            Period: <strong>{ps_h}</strong> through <strong>{pe_h}</strong>
+                        </div>
+                        <div style="margin-top:0.4rem;font-size:0.62rem;font-weight:700;letter-spacing:0.14em;
+                                    color:#636262;">{html.escape(typ)}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;color:#636262;">
+                            BEGINNING BALANCE
+                        </div>
+                        <div style="font-size:0.7rem;color:#636262;margin-top:0.15rem;">As of {ps_h}</div>
+                        <div style="font-family:'Manrope',sans-serif;font-size:1.15rem;font-weight:700;
+                                    color:#1a1c1c;margin-top:0.2rem;">${beg:,.2f}</div>
+                    </div>
+                </div>
             </div>
             """)
 
-        st.html(f"""
-        <div style="display:flex;justify-content:space-between;padding:0.6rem 0.5rem;
-                    border-radius:0.125rem;transition:background 0.2s;">
-            <div style="display:flex;gap:1.5rem;align-items:center;">
-                <span style="font-family:'Courier New',monospace;font-size:0.75rem;
-                             color:#636262;min-width:3rem;">{acct['number']}</span>
-                <span style="font-size:0.875rem;font-weight:500;">{acct['name']}</span>
-                <span style="font-size:0.65rem;color:#636262;background:#eeeeee;
-                             padding:0.1rem 0.5rem;border-radius:0.75rem;">
-                    {acct['subtype']}
-                </span>
+            thead = """
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:0.75rem 0.5rem 0.75rem 0;font-size:0.62rem;
+                                   font-weight:700;letter-spacing:0.12em;color:#636262;">DATE</th>
+                        <th style="text-align:left;padding:0.75rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.12em;color:#636262;">PAYEE / DESCRIPTION</th>
+                        <th style="text-align:right;padding:0.75rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.12em;color:#636262;">DEBITS</th>
+                        <th style="text-align:right;padding:0.75rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.12em;color:#636262;">CREDITS</th>
+                        <th style="text-align:right;padding:0.75rem 0 0.75rem 0.5rem;font-size:0.62rem;
+                                   font-weight:700;letter-spacing:0.12em;color:#636262;">RUNNING</th>
+                    </tr>
+                </thead>
+                """
+            rows_html = ""
+            for ln in disp_lines:
+                is_open = bool(ln.get("is_opening"))
+                if is_open:
+                    ds = ps.strftime("%b %d, %Y")
+                    pd = html.escape("Opening balance")
+                    row_bg = "background:rgba(21,66,18,0.06);"
+                else:
+                    ds = _gl_format_line_date(str(ln.get("date") or ""))
+                    pd = html.escape(_gl_payee_description(ln.get("payee") or "", ln.get("description") or ""))
+                    row_bg = ""
+                deb = ln.get("debit")
+                crd = ln.get("credit")
+                bal = float(ln.get("balance") or 0)
+                deb_s = (
+                    f'<span style="font-weight:700;color:#154212;">${deb:,.2f}</span>'
+                    if deb
+                    else '<span style="color:#636262;">—</span>'
+                )
+                crd_s = (
+                    f'<span style="font-weight:700;color:#71151d;">${crd:,.2f}</span>'
+                    if crd
+                    else '<span style="color:#636262;">—</span>'
+                )
+                rows_html += f"""
+                    <tr style="{row_bg}">
+                        <td style="padding:0.85rem 0.5rem 0.85rem 0;font-size:0.875rem;color:#1a1c1c;
+                                   vertical-align:top;">{html.escape(ds)}</td>
+                        <td style="padding:0.85rem 0.5rem;font-size:0.875rem;color:#1a1c1c;vertical-align:top;
+                                   font-style:{'italic' if is_open else 'normal'};">{pd}</td>
+                        <td style="padding:0.85rem 0.5rem;text-align:right;vertical-align:top;">{deb_s}</td>
+                        <td style="padding:0.85rem 0.5rem;text-align:right;vertical-align:top;">{crd_s}</td>
+                        <td style="padding:0.85rem 0 0.85rem 0.5rem;text-align:right;font-size:0.875rem;
+                                   font-weight:600;color:#1a1c1c;vertical-align:top;">${bal:,.2f}</td>
+                    </tr>
+                    """
+            st.html(f"""
+                <div style="overflow-x:auto;margin-top:0.75rem;">
+                    <table style="width:100%;border-collapse:collapse;font-family:'Inter',sans-serif;">
+                        {thead}
+                        <tbody>{rows_html}</tbody>
+                    </table>
+                </div>
+                """)
+
+            st.html(f"""
+            <div style="display:flex;justify-content:flex-end;margin-top:0.75rem;padding-top:0.75rem;">
+                <div style="text-align:right;">
+                    <div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;color:#636262;">
+                        ENDING BALANCE
+                    </div>
+                    <div style="font-size:0.7rem;color:#636262;margin-top:0.15rem;">As of {pe_h}</div>
+                    <div style="font-family:'Manrope',sans-serif;font-size:1.05rem;font-weight:700;
+                                color:#154212;margin-top:0.2rem;">${end:,.2f}</div>
+                </div>
             </div>
-            <span style="font-size:0.75rem;color:#636262;">—</span>
-        </div>
-        """)
+            """)
 
 # ────────────────────────────────────────────────────────────────────────────────
 # TAB 4: Trial Balance
@@ -564,13 +848,11 @@ with tab_tb:
             total_crd += row["credits"]
         tb_rows += f"""
         <tr style="background:#ffffff;">
-            <td style="padding:1rem;font-family:'Courier New',monospace;font-size:0.75rem;
-                       color:#636262;">{row['bank_account']}</td>
             <td style="padding:1rem;font-size:0.8rem;color:#636262;">{row['coa']}</td>
             <td style="padding:1rem;text-align:right;font-size:0.875rem;">{deb_str}</td>
             <td style="padding:1rem;text-align:right;font-size:0.875rem;">{crd_str}</td>
         </tr>
-        <tr><td colspan="4" style="height:0.25rem;background:transparent;"></td></tr>"""
+        <tr><td colspan="3" style="height:0.25rem;background:transparent;"></td></tr>"""
 
     st.html(f"""
     <div style="overflow-x:auto;">
@@ -579,10 +861,7 @@ with tab_tb:
                 <tr>
                     <th style="padding:0.75rem 1rem;text-align:left;font-size:0.65rem;
                                font-weight:700;text-transform:uppercase;letter-spacing:0.1em;
-                               color:#636262;">Bank Account</th>
-                    <th style="padding:0.75rem 1rem;text-align:left;font-size:0.65rem;
-                               font-weight:700;text-transform:uppercase;letter-spacing:0.1em;
-                               color:#636262;">COA Number</th>
+                               color:#636262;">Chart of accounts</th>
                     <th style="padding:0.75rem 1rem;text-align:right;font-size:0.65rem;
                                font-weight:700;text-transform:uppercase;letter-spacing:0.1em;
                                color:#636262;">Debits</th>

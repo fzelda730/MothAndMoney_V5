@@ -11,6 +11,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from psycopg2 import errors as pg_errors
+from psycopg2.extras import execute_values
+
 from db.connection import get_connection
 
 
@@ -214,6 +217,155 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
     return out
 
 
+def insert_bank(bank_name: str, bank_type: str) -> str:
+    """Insert a bank (institution). bank_type: depository | credit_card. Returns UUID string."""
+    name = (bank_name or "").strip()
+    bt = (bank_type or "").strip().lower()
+    if not name:
+        raise ValueError("Institution name is required.")
+    if bt not in ("depository", "credit_card"):
+        raise ValueError("bank_type must be depository or credit_card.")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO banks (bank_name, bank_type)
+                VALUES (%s, %s::bank_type_enum)
+                RETURNING id::text AS id
+                """,
+                (name, bt),
+            )
+            row = cur.fetchone()
+            return str(row["id"])
+
+
+def fetch_banks() -> list[dict[str, Any]]:
+    """All banks for onboarding dropdowns."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text AS id, bank_name, bank_type::text AS bank_type
+                FROM banks
+                ORDER BY bank_name
+                """
+            )
+            rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def insert_bank_account(
+    bank_id: str,
+    template_id: str | None,
+    account_name: str,
+    account_number_masked: str,
+    account_type: str,
+) -> str:
+    """Insert bank_accounts row. template_id may be NULL. Returns UUID string."""
+    bid = (bank_id or "").strip()
+    an = (account_name or "").strip()
+    masked = (account_number_masked or "").strip()
+    at = (account_type or "").strip().lower()
+    if not bid:
+        raise ValueError("Institution is required.")
+    if not an:
+        raise ValueError("Account name is required.")
+    if not masked:
+        raise ValueError("Last four (or mask) is required.")
+    if at not in ("checking", "savings", "credit_card", "cash"):
+        raise ValueError("Invalid account_type.")
+    tid = (template_id or "").strip() or None
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO bank_accounts (bank_id, template_id, account_name, account_number_masked, account_type)
+                VALUES (%s::uuid, %s::uuid, %s, %s, %s::account_type_enum)
+                RETURNING id::text AS id
+                """,
+                (bid, tid, an, masked[:10], at),
+            )
+            row = cur.fetchone()
+            return str(row["id"])
+
+
+def count_transactions_for_bank_account(bank_account_id: str) -> int:
+    """Number of ledger transaction rows for this account."""
+    aid = (bank_account_id or "").strip()
+    if not aid:
+        return 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM transactions
+                WHERE bank_account_id = %s::uuid
+                """,
+                (aid,),
+            )
+            row = cur.fetchone()
+            return int(row["c"] or 0)
+
+
+def fetch_bank_accounts_manage() -> list[dict[str, Any]]:
+    """Onboarding management list: account + institution + template + txn count."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    ba.id::text AS id,
+                    ba.bank_id::text AS bank_id,
+                    b.bank_name,
+                    b.bank_type::text AS bank_type,
+                    ba.account_name,
+                    ba.account_number_masked,
+                    ba.account_type::text AS account_type,
+                    ba.template_id::text AS template_id,
+                    it.template_name AS template_name,
+                    (SELECT COUNT(*) FROM transactions t WHERE t.bank_account_id = ba.id)::int AS txn_count
+                FROM bank_accounts ba
+                JOIN banks b ON b.id = ba.bank_id
+                LEFT JOIN import_templates it ON it.id = ba.template_id
+                WHERE ba.is_active = TRUE
+                ORDER BY b.bank_name, ba.account_name
+                """
+            )
+            rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_bank_account_if_safe(bank_account_id: str) -> str | None:
+    """
+    Delete a bank account only when it has no transactions.
+    Clears ledger_submissions first (FK RESTRICT). Returns None on success, else error message.
+    """
+    aid = (bank_account_id or "").strip()
+    if not aid:
+        return "Missing account id."
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*)::int AS c FROM transactions WHERE bank_account_id = %s::uuid",
+                (aid,),
+            )
+            n = int(cur.fetchone()["c"] or 0)
+            if n > 0:
+                return (
+                    "This account has ledger transactions and cannot be removed. "
+                    f"({n} transaction{'s' if n != 1 else ''})"
+                )
+            cur.execute(
+                "DELETE FROM ledger_submissions WHERE bank_account_id = %s::uuid",
+                (aid,),
+            )
+            cur.execute("DELETE FROM bank_accounts WHERE id = %s::uuid", (aid,))
+            if cur.rowcount == 0:
+                return "Account not found or already removed."
+    return None
+
+
 def fetch_chart_of_accounts() -> list[dict[str, Any]]:
     """Aligned with CHART_OF_ACCOUNTS (type title case for display)."""
     type_map = {
@@ -250,6 +402,232 @@ def fetch_chart_of_accounts() -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+_COA_TYPES: frozenset[str] = frozenset(
+    {"asset", "liability", "equity", "income", "expense"}
+)
+
+
+def insert_chart_of_account(
+    *,
+    account_number: str,
+    account_name: str,
+    account_type: str,
+    account_subtype: str | None = None,
+) -> tuple[str | None, str | None]:
+    """
+    Insert one chart_of_accounts row. Returns (new_id, None) on success,
+    (None, error_message) on validation or duplicate account_number.
+    """
+    num = (account_number or "").strip()[:20]
+    name = (account_name or "").strip()[:255]
+    at = (account_type or "").strip().lower()
+    sub = (account_subtype or "").strip()[:100] or None
+    if not num or not name:
+        return None, "Account number and account name are required."
+    if at not in _COA_TYPES:
+        return None, "Invalid account type."
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO chart_of_accounts (account_number, account_name, account_type, account_subtype)
+                    VALUES (%s, %s, %s::coa_account_type_enum, %s)
+                    RETURNING id::text AS id
+                    """,
+                    (num, name, at, sub),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None, "Insert failed."
+        return str(row["id"]), None
+    except pg_errors.UniqueViolation:
+        return None, f"Account number {num} already exists."
+    except Exception as e:
+        return None, str(e)
+
+
+def fetch_chart_of_account_by_id(coa_id: str) -> dict[str, Any] | None:
+    """One chart row for edit forms; type is lowercase enum string."""
+    cid = (coa_id or "").strip()
+    if not cid:
+        return None
+    try:
+        UUID(cid)
+    except ValueError:
+        return None
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text AS id, account_number, account_name,
+                       account_type::text AS atype, account_subtype
+                FROM chart_of_accounts
+                WHERE id = %s::uuid
+                """,
+                (cid,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    at = (row["atype"] or "").lower()
+    sub = row["account_subtype"] or ""
+    return {
+        "id": row["id"],
+        "number": row["account_number"],
+        "name": row["account_name"],
+        "type": at,
+        "subtype": sub,
+    }
+
+
+def update_chart_of_account(
+    coa_id: str,
+    *,
+    account_number: str,
+    account_name: str,
+    account_type: str,
+    account_subtype: str | None = None,
+) -> tuple[bool, str | None]:
+    """
+    Update chart_of_accounts. Returns (True, None) on success, (False, error_message) on failure.
+    """
+    cid = (coa_id or "").strip()
+    if not cid:
+        return False, "Account id is required."
+    try:
+        UUID(cid)
+    except ValueError:
+        return False, "Invalid account id."
+    num = (account_number or "").strip()[:20]
+    name = (account_name or "").strip()[:255]
+    at = (account_type or "").strip().lower()
+    sub = (account_subtype or "").strip()[:100] or None
+    if not num or not name:
+        return False, "Account number and account name are required."
+    if at not in _COA_TYPES:
+        return False, "Invalid account type."
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE chart_of_accounts
+                    SET account_number = %s,
+                        account_name = %s,
+                        account_type = %s::coa_account_type_enum,
+                        account_subtype = %s
+                    WHERE id = %s::uuid
+                    """,
+                    (num, name, at, sub, cid),
+                )
+                if cur.rowcount == 0:
+                    return False, "Chart account not found."
+        return True, None
+    except pg_errors.UniqueViolation:
+        return False, f"Account number {num} already exists."
+    except Exception as e:
+        return False, str(e)
+
+
+def count_transactions_for_coa(coa_id: str) -> int:
+    """Rows in transactions referencing this chart account (any status)."""
+    cid = (coa_id or "").strip()
+    if not cid:
+        return 0
+    try:
+        UUID(cid)
+    except ValueError:
+        return 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS n
+                FROM transactions
+                WHERE coa_id = %s::uuid
+                """,
+                (cid,),
+            )
+            row = cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
+def count_payee_rules_for_coa(coa_id: str) -> int:
+    """Rows in payee_rules referencing this chart account."""
+    cid = (coa_id or "").strip()
+    if not cid:
+        return 0
+    try:
+        UUID(cid)
+    except ValueError:
+        return 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS n
+                FROM payee_rules
+                WHERE coa_id = %s::uuid
+                """,
+                (cid,),
+            )
+            row = cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
+def delete_chart_of_account(coa_id: str) -> tuple[bool, str | None]:
+    """
+    Delete a chart row if it has no transactions. Trial balance lines for this
+    COA are removed in the same transaction. Payee rules block delete until removed.
+    Returns (True, None) or (False, message).
+    """
+    cid = (coa_id or "").strip()
+    if not cid:
+        return False, "Account id is required."
+    try:
+        UUID(cid)
+    except ValueError:
+        return False, "Invalid account id."
+    n = count_transactions_for_coa(cid)
+    if n > 0:
+        return (
+            False,
+            "This account has posted or pending transactions assigned to it. "
+            "Edit the account or reclassify those transactions before deleting.",
+        )
+    pr = count_payee_rules_for_coa(cid)
+    if pr > 0:
+        return (
+            False,
+            "This account is still used by payee rules. Remove or reassign those first.",
+        )
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM trial_balance_entries WHERE coa_id = %s::uuid",
+                    (cid,),
+                )
+                cur.execute(
+                    "DELETE FROM chart_of_accounts WHERE id = %s::uuid",
+                    (cid,),
+                )
+                if cur.rowcount == 0:
+                    return False, "Chart account not found."
+        return True, None
+    except pg_errors.IntegrityError as e:
+        if getattr(e, "pgcode", None) == "23503":
+            return (
+                False,
+                "This account cannot be deleted because it is still referenced by another record. "
+                "Remove payee rules or other links first.",
+            )
+        return False, str(e)
+    except Exception as e:
+        return False, str(e)
 
 
 def fetch_ledger_transactions(bank_account_id: str) -> list[dict[str, Any]]:
@@ -355,6 +733,188 @@ def fetch_import_templates() -> list[dict[str, Any]]:
     return result
 
 
+def fetch_import_template_by_id(template_id: str) -> dict[str, Any] | None:
+    tid = (template_id or "").strip()
+    if not tid:
+        return None
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text AS id, template_name AS name, template_type::text AS type,
+                       column_map
+                FROM import_templates
+                WHERE id = %s::uuid
+                """,
+                (tid,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    cm = row["column_map"]
+    if isinstance(cm, str):
+        cm = json.loads(cm)
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "type": row["type"],
+        "accounts": [],
+        "column_map": cm if isinstance(cm, dict) else {},
+    }
+
+
+def fetch_bank_account_import_context(bank_account_id: str) -> dict[str, Any] | None:
+    """
+    Bank account row with linked import template for CSV processing.
+    Returns None if account not found.
+    """
+    aid = (bank_account_id or "").strip()
+    if not aid:
+        return None
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ba.id::text AS bank_account_id,
+                       ba.account_type::text AS account_type,
+                       ba.template_id::text AS template_id,
+                       it.template_type::text AS template_type,
+                       it.column_map
+                FROM bank_accounts ba
+                LEFT JOIN import_templates it ON it.id = ba.template_id
+                WHERE ba.id = %s::uuid
+                """,
+                (aid,),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    cm = row["column_map"]
+    if isinstance(cm, str):
+        cm = json.loads(cm)
+    return {
+        "bank_account_id": row["bank_account_id"],
+        "account_type": row["account_type"],
+        "template_id": row["template_id"],
+        "template_type": row["template_type"],
+        "column_map": cm if isinstance(cm, dict) else {},
+    }
+
+
+def insert_ledger_import_batch_and_transactions(
+    *,
+    bank_account_id: str,
+    template_id: str,
+    filename: str,
+    period_start: date | None,
+    period_end: date | None,
+    transaction_rows: list[dict[str, Any]],
+) -> str:
+    """
+    Insert one import_batches row and all transactions in a single DB transaction.
+    Each item in transaction_rows must have: date (date), payee (str), payee_normalized (str),
+    debit_amount (float), credit_amount (float), description (str|None), coa_id (str|None),
+    source ('bank_import'|'credit_card_import').
+
+    Returns the new import_batches id as text.
+    """
+    aid = (bank_account_id or "").strip()
+    tid = (template_id or "").strip()
+    fn = (filename or "").strip() or "upload.csv"
+    if not aid or not tid:
+        raise ValueError("bank_account_id and template_id are required.")
+    if not transaction_rows:
+        raise ValueError("No transaction rows to import.")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO import_batches (
+                    bank_account_id, template_id, filename, period_start, period_end,
+                    record_count, status
+                )
+                VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, 'processing'::batch_status_enum)
+                RETURNING id::text AS id
+                """,
+                (aid, tid, fn[:500], period_start, period_end, len(transaction_rows)),
+            )
+            batch_row = cur.fetchone()
+            batch_id = str(batch_row["id"])
+
+            tuples: list[tuple[Any, ...]] = []
+            for r in transaction_rows:
+                d = r["date"]
+                if isinstance(d, datetime):
+                    d = d.date()
+                tuples.append(
+                    (
+                        aid,
+                        batch_id,
+                        r.get("coa_id"),
+                        d,
+                        (r.get("payee") or "")[:500],
+                        (r.get("payee_normalized") or "")[:500],
+                        float(r.get("debit_amount") or 0),
+                        float(r.get("credit_amount") or 0),
+                        r.get("description"),
+                        r.get("source") or "bank_import",
+                        "cleared",
+                    )
+                )
+
+            execute_values(
+                cur,
+                """
+                INSERT INTO transactions (
+                    bank_account_id, import_batch_id, coa_id, date, payee, payee_normalized,
+                    debit_amount, credit_amount, description, source, status
+                ) VALUES %s
+                """,
+                tuples,
+                template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::transaction_source_enum, %s::transaction_status_enum)",
+            )
+
+            cur.execute(
+                """
+                UPDATE import_batches
+                SET status = 'complete'::batch_status_enum,
+                    record_count = %s
+                WHERE id = %s::uuid
+                """,
+                (len(transaction_rows), batch_id),
+            )
+
+    return batch_id
+
+
+def update_import_template(
+    template_id: str,
+    template_name: str,
+    column_map: dict[str, Any],
+    template_type: str,
+) -> bool:
+    """Update name and column_map; only if row matches template_type. Returns True if a row was updated."""
+    tid = (template_id or "").strip()
+    name = (template_name or "").strip()[:255]
+    tt = template_type if template_type in ("bank_statement", "credit_card") else "bank_statement"
+    if not tid or not name:
+        return False
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE import_templates
+                SET template_name = %s,
+                    column_map = %s::jsonb,
+                    updated_at = NOW()
+                WHERE id = %s::uuid AND template_type = %s::template_type_enum
+                """,
+                (name, json.dumps(column_map), tid, tt),
+            )
+            return cur.rowcount is not None and cur.rowcount > 0
+
+
 def insert_import_template(
     template_name: str,
     template_type: str,
@@ -381,29 +941,54 @@ def _normalize_payee_pattern(s: str) -> str:
     return " ".join((s or "").split()).strip().lower()
 
 
-def fetch_payee_rules_for_template(template_id: str) -> list[dict[str, Any]]:
+def schema_has_payee_rules_bank_account_id() -> bool:
+    """
+    True if public.payee_rules includes bank_account_id (post-migration).
+    False when the database is still on the legacy template_id-only schema or on error.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'payee_rules'
+                      AND column_name = 'bank_account_id'
+                    LIMIT 1
+                    """
+                )
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def fetch_payee_rules_for_bank_account(bank_account_id: str) -> list[dict[str, Any]]:
     """payee_pattern is stored normalized; joins COA for display."""
-    tid = (template_id or "").strip()
-    if not tid:
+    aid = (bank_account_id or "").strip()
+    if not aid:
         return []
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT pr.payee_pattern,
+                SELECT pr.id::text AS id,
+                       pr.payee_pattern,
                        pr.coa_id::text AS coa_id,
                        coa.account_number,
                        coa.account_name
                 FROM payee_rules pr
                 JOIN chart_of_accounts coa ON coa.id = pr.coa_id
-                WHERE pr.template_id = %s::uuid
+                WHERE pr.bank_account_id = %s::uuid
                 ORDER BY pr.payee_pattern
                 """,
-                (tid,),
+                (aid,),
             )
             rows = cur.fetchall()
     return [
         {
+            "id": row["id"],
             "payee_pattern": row["payee_pattern"],
             "coa_id": row["coa_id"],
             "coa_number": row["account_number"],
@@ -413,51 +998,53 @@ def fetch_payee_rules_for_template(template_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def upsert_payee_rule(template_id: str, payee_pattern: str, coa_id: str) -> None:
-    """payee_pattern must already be normalized. template_id and coa_id are UUID strings."""
-    tid = (template_id or "").strip()
+def upsert_payee_rule_for_bank_account(
+    bank_account_id: str, payee_pattern: str, coa_id: str
+) -> None:
+    """payee_pattern must already be normalized. IDs are UUID strings."""
+    aid = (bank_account_id or "").strip()
     pid = (payee_pattern or "").strip()
     cid = (coa_id or "").strip()
-    if not tid or not pid or not cid:
+    if not aid or not pid or not cid:
         return
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO payee_rules (payee_pattern, coa_id, template_id, transaction_type, confidence)
+                INSERT INTO payee_rules (payee_pattern, coa_id, bank_account_id, transaction_type, confidence)
                 VALUES (%s, %s::uuid, %s::uuid, 'debit', 1.000)
-                ON CONFLICT (payee_pattern, template_id)
+                ON CONFLICT (payee_pattern, bank_account_id)
                 DO UPDATE SET coa_id = EXCLUDED.coa_id
                 """,
-                (pid, cid, tid),
+                (pid, cid, aid),
             )
 
 
-def delete_payee_rule_for_template(template_id: str, payee_pattern: str) -> int:
-    tid = (template_id or "").strip()
+def delete_payee_rule_for_bank_account(bank_account_id: str, payee_pattern: str) -> int:
+    aid = (bank_account_id or "").strip()
     pid = (payee_pattern or "").strip()
-    if not tid or not pid:
+    if not aid or not pid:
         return 0
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 DELETE FROM payee_rules
-                WHERE template_id = %s::uuid AND payee_pattern = %s
+                WHERE bank_account_id = %s::uuid AND payee_pattern = %s
                 """,
-                (tid, pid),
+                (aid, pid),
             )
             return cur.rowcount or 0
 
 
-def resolve_coa_id_for_bank_payee(payee_raw: str, template_id: str) -> str | None:
+def resolve_coa_id_for_bank_payee(payee_raw: str, bank_account_id: str) -> str | None:
     """
-    Exact match on normalized payee text for the given import template.
-    Call from bank CSV import when creating transactions.
+    Exact match on normalized payee text for the given bank account.
+    Call from CSV import when creating transactions.
     """
     pn = _normalize_payee_pattern(payee_raw)
-    tid = (template_id or "").strip()
-    if not pn or not tid:
+    aid = (bank_account_id or "").strip()
+    if not pn or not aid:
         return None
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -465,30 +1052,28 @@ def resolve_coa_id_for_bank_payee(payee_raw: str, template_id: str) -> str | Non
                 """
                 SELECT coa_id::text AS id
                 FROM payee_rules
-                WHERE template_id = %s::uuid AND payee_pattern = %s
+                WHERE bank_account_id = %s::uuid AND payee_pattern = %s
                 LIMIT 1
                 """,
-                (tid, pn),
+                (aid, pn),
             )
             row = cur.fetchone()
     return row["id"] if row else None
 
 
 def fetch_trial_balance_report() -> list[dict[str, Any]]:
-    """TRIAL_BALANCE_REPORT rows from trial_balance_entries."""
+    """TRIAL_BALANCE_REPORT rows from trial_balance_entries (COA-focused; no bank column)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT ba.account_number_masked AS bank_account,
-                       coa.account_number AS coa_number,
+                SELECT coa.account_number AS coa_number,
                        coa.account_number || ' - ' || coa.account_name AS coa,
                        t.debit_amount, t.credit_amount
                 FROM trial_balance_entries t
-                JOIN bank_accounts ba ON ba.id = t.bank_account_id
                 JOIN chart_of_accounts coa ON coa.id = t.coa_id
                 WHERE t.status IN ('pending', 'confirmed')
-                ORDER BY ba.account_number_masked, coa.account_number
+                ORDER BY coa.account_number
                 """
             )
             rows = cur.fetchall()
@@ -498,7 +1083,6 @@ def fetch_trial_balance_report() -> list[dict[str, Any]]:
         crd = _num(row["credit_amount"])
         out.append(
             {
-                "bank_account": row["bank_account"],
                 "coa_number": row["coa_number"],
                 "coa": row["coa"],
                 "debits": deb if deb else None,
@@ -506,6 +1090,350 @@ def fetch_trial_balance_report() -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _coa_number_range_clause(
+    coa_from: str | None, coa_to: str | None
+) -> tuple[str, list[Any]]:
+    """Extra WHERE fragment for chart_of_accounts.account_number (lexicographic)."""
+    cf = (coa_from or "").strip()
+    ct = (coa_to or "").strip()
+    if not cf and not ct:
+        return "", []
+    if cf and ct:
+        return " AND account_number BETWEEN %s AND %s ", [cf, ct]
+    if cf:
+        return " AND account_number >= %s ", [cf]
+    return " AND account_number <= %s ", [ct]
+
+
+_GL_STATUS_FILTER = " AND t.status IN ('pending', 'cleared') "
+# GL includes flagged so activity is visible; ledger review can still flag items in the UI.
+_GL_LEDGER_STATUS_FILTER = " AND t.status IN ('pending', 'cleared', 'flagged') "
+
+
+def fetch_general_ledger_detail(
+    period_start: date,
+    period_end: date,
+    coa_number_from: str | None,
+    coa_number_to: str | None,
+    bank_account_id: str | None,
+) -> list[dict[str, Any]]:
+    """
+    General ledger by chart account: beginning balance = trial_balance_entries net (debit
+    minus credit) for the COA, same scope as Reports Trial Balance (pending and confirmed;
+    includes TB-IMPORT book when summing all banks), plus categorized transaction net before
+    period_start (optional bank filter on transactions). Period lines and ending balance follow.
+    Uncategorized (coa_id NULL) in a separate section when no chart account range filter.
+
+    Returns list of dicts: coa_number, coa_name, beginning_balance, ending_balance,
+    lines[{date, payee, description, debit, credit, balance}].
+    """
+    ps, pe = period_start, period_end
+    if ps > pe:
+        ps, pe = pe, ps
+
+    bank_id = (bank_account_id or "").strip() or None
+    if bank_id:
+        try:
+            UUID(bank_id)
+        except ValueError:
+            bank_id = None
+
+    frag, frag_params = _coa_number_range_clause(coa_number_from, coa_number_to)
+    _cf = (coa_number_from or "").strip()
+    _ct = (coa_number_to or "").strip()
+    include_uncategorized = not _cf and not _ct
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id::text AS id, account_number, account_name,
+                       account_type::text AS atype
+                FROM chart_of_accounts
+                WHERE is_active = TRUE
+                {frag}
+                ORDER BY account_number
+                """,
+                frag_params,
+            )
+            coa_rows = cur.fetchall()
+
+    if not coa_rows:
+        return []
+
+    ids = [str(r["id"]) for r in coa_rows]
+    placeholders = ",".join(["%s::uuid"] * len(ids))
+
+    bank_sql = ""
+    bank_params: list[Any] = []
+    if bank_id:
+        bank_sql = " AND t.bank_account_id = %s::uuid "
+        bank_params = [bank_id]
+
+    beg_map: dict[str, float] = {i: 0.0 for i in ids}
+    lines_by_coa: dict[str, list[dict[str, Any]]] = {i: [] for i in ids}
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Trial balance opening: same rows as Reports ▸ Trial Balance (pending + confirmed).
+            # Include TB-IMPORT book (CSV onboarding lines live there); only filter by bank when
+            # user picks a single bank account.
+            tb_scope_sql = ""
+            tb_scope_params: list[Any] = []
+            if bank_id:
+                tb_scope_sql = " AND te.bank_account_id = %s::uuid "
+                tb_scope_params = [bank_id]
+
+            cur.execute(
+                f"""
+                SELECT te.coa_id::text AS cid,
+                       COALESCE(SUM(te.debit_amount - te.credit_amount), 0) AS tb_net
+                FROM trial_balance_entries te
+                WHERE te.status IN ('pending', 'confirmed')
+                  AND te.coa_id IN ({placeholders})
+                  {tb_scope_sql}
+                GROUP BY te.coa_id
+                """,
+                [*ids, *tb_scope_params],
+            )
+            for row in cur.fetchall():
+                beg_map[str(row["cid"])] = _num(row["tb_net"])
+
+            cur.execute(
+                f"""
+                SELECT t.coa_id::text AS cid, COALESCE(SUM(t.debit_amount - t.credit_amount), 0) AS beg
+                FROM transactions t
+                WHERE t.coa_id IN ({placeholders})
+                  AND t.coa_id IS NOT NULL
+                  AND t.date < %s
+                  {_GL_LEDGER_STATUS_FILTER}
+                  {bank_sql}
+                GROUP BY t.coa_id
+                """,
+                [*ids, ps, *bank_params],
+            )
+            for row in cur.fetchall():
+                cid = str(row["cid"])
+                beg_map[cid] = beg_map.get(cid, 0.0) + _num(row["beg"])
+
+            cur.execute(
+                f"""
+                SELECT t.coa_id::text AS cid, t.date, t.payee, t.description,
+                       t.debit_amount, t.credit_amount, t.created_at
+                FROM transactions t
+                WHERE t.coa_id IN ({placeholders})
+                  AND t.date >= %s AND t.date <= %s
+                  {_GL_LEDGER_STATUS_FILTER}
+                  {bank_sql}
+                ORDER BY t.coa_id, t.date, t.created_at
+                """,
+                [*ids, ps, pe, *bank_params],
+            )
+            for row in cur.fetchall():
+                cid = str(row["cid"])
+                d = row["date"]
+                ds = d.isoformat() if hasattr(d, "isoformat") else str(d)
+                deb = _num(row["debit_amount"])
+                crd = _num(row["credit_amount"])
+                lines_by_coa[cid].append(
+                    {
+                        "date": ds,
+                        "payee": row["payee"] or "",
+                        "description": row["description"] or "",
+                        "debit": deb if deb else None,
+                        "credit": crd if crd else None,
+                        "balance": 0.0,
+                    }
+                )
+
+            beg_uncat = 0.0
+            uncat_lines: list[dict[str, Any]] = []
+            if include_uncategorized:
+                cur.execute(
+                    f"""
+                    SELECT COALESCE(SUM(t.debit_amount - t.credit_amount), 0) AS beg
+                    FROM transactions t
+                    WHERE t.coa_id IS NULL
+                      AND t.date < %s
+                      {_GL_LEDGER_STATUS_FILTER}
+                      {bank_sql}
+                    """,
+                    [ps, *bank_params],
+                )
+                urow = cur.fetchone()
+                beg_uncat = _num(urow["beg"]) if urow else 0.0
+
+                cur.execute(
+                    f"""
+                    SELECT t.date, t.payee, t.description,
+                           t.debit_amount, t.credit_amount, t.created_at
+                    FROM transactions t
+                    WHERE t.coa_id IS NULL
+                      AND t.date >= %s AND t.date <= %s
+                      {_GL_LEDGER_STATUS_FILTER}
+                      {bank_sql}
+                    ORDER BY t.date, t.created_at
+                    """,
+                    [ps, pe, *bank_params],
+                )
+                for row in cur.fetchall():
+                    d = row["date"]
+                    ds = d.isoformat() if hasattr(d, "isoformat") else str(d)
+                    deb = _num(row["debit_amount"])
+                    crd = _num(row["credit_amount"])
+                    uncat_lines.append(
+                        {
+                            "date": ds,
+                            "payee": row["payee"] or "",
+                            "description": row["description"] or "",
+                            "debit": deb if deb else None,
+                            "credit": crd if crd else None,
+                            "balance": 0.0,
+                        }
+                    )
+
+    out: list[dict[str, Any]] = []
+    for r in coa_rows:
+        cid = str(r["id"])
+        num = r["account_number"]
+        name = r["account_name"]
+        beg = beg_map.get(cid, 0.0)
+        lines = lines_by_coa.get(cid, [])
+        run = beg
+        for ln in lines:
+            deb = _num(ln["debit"] or 0)
+            crd = _num(ln["credit"] or 0)
+            run = run + deb - crd
+            ln["balance"] = run
+        ending = run
+        atype = (r.get("atype") or "").lower()
+        out.append(
+            {
+                "coa_number": num,
+                "coa_name": name,
+                "coa_type": atype,
+                "beginning_balance": beg,
+                "ending_balance": ending,
+                "lines": lines,
+            }
+        )
+
+    if include_uncategorized and (
+        abs(beg_uncat) > 1e-9 or len(uncat_lines) > 0
+    ):
+        run_u = beg_uncat
+        for ln in uncat_lines:
+            deb = _num(ln["debit"] or 0)
+            crd = _num(ln["credit"] or 0)
+            run_u = run_u + deb - crd
+            ln["balance"] = run_u
+        out.append(
+            {
+                "coa_number": "—",
+                "coa_name": "Uncategorized (no chart account assigned)",
+                "coa_type": "expense",
+                "beginning_balance": beg_uncat,
+                "ending_balance": run_u,
+                "lines": uncat_lines,
+            }
+        )
+
+    return out
+
+
+TB_OPENING_SUBMISSION_LABEL = "Opening from trial balance"
+
+
+def fetch_bank_accounts_for_tb_mapping() -> list[dict[str, Any]]:
+    """Active bank accounts for mapping TB lines to Ledger (excludes TB-IMPORT book)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ba.id::text AS id, ba.account_name, ba.account_number_masked
+                FROM bank_accounts ba
+                WHERE ba.is_active = TRUE
+                  AND ba.account_number_masked <> 'TB-IMPORT'
+                ORDER BY ba.account_name
+                """
+            )
+            rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def _bank_account_id_for_tb_row(cur, row: dict[str, Any], default_id: str) -> str:
+    raw = row.get("bank_account_id") or row.get("Bank account id")
+    if raw is None or str(raw).strip() == "":
+        return default_id
+    aid = str(raw).strip()
+    try:
+        UUID(aid)
+    except (ValueError, TypeError):
+        return default_id
+    cur.execute(
+        "SELECT 1 FROM bank_accounts WHERE id = %s::uuid AND is_active = TRUE",
+        (aid,),
+    )
+    if cur.fetchone():
+        return aid
+    return default_id
+
+
+def seed_ledger_opening_balances_from_trial_balance(cur) -> int:
+    """
+    Replace prior opening submissions with this label, then insert one row per bank account
+    that has confirmed trial_balance_entries (excluding the TB-IMPORT book account).
+    ending_balance = SUM(debit_amount) - SUM(credit_amount) for that account.
+    """
+    cur.execute(
+        """
+        SELECT id::text FROM bank_accounts
+        WHERE account_number_masked = 'TB-IMPORT' LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    tb_import_id = str(row["id"]) if row else None
+    if not tb_import_id:
+        return 0
+
+    cur.execute(
+        "DELETE FROM ledger_submissions WHERE period_label = %s",
+        (TB_OPENING_SUBMISSION_LABEL,),
+    )
+
+    cur.execute(
+        """
+        SELECT bank_account_id::text AS bid,
+               COALESCE(SUM(debit_amount), 0) AS sdeb,
+               COALESCE(SUM(credit_amount), 0) AS scrd
+        FROM trial_balance_entries
+        WHERE status = 'confirmed'::trial_balance_status_enum
+          AND bank_account_id <> %s::uuid
+        GROUP BY bank_account_id
+        """,
+        (tb_import_id,),
+    )
+    groups = cur.fetchall()
+    today = date.today()
+    n_ins = 0
+    for g in groups:
+        bid = g["bid"]
+        net = float(g["sdeb"]) - float(g["scrd"])
+        cur.execute(
+            """
+            INSERT INTO ledger_submissions (
+                bank_account_id, period_label, period_start, period_end,
+                beginning_balance, total_debits, total_credits, ending_balance
+            ) VALUES (
+                %s::uuid, %s, %s, %s, 0, 0, 0, %s
+            )
+            """,
+            (bid, TB_OPENING_SUBMISSION_LABEL, today, today, net),
+        )
+        n_ins += 1
+    return n_ins
 
 
 def delete_pending_trial_balance_entries() -> int:
@@ -675,10 +1603,16 @@ def save_trial_balance_csv_import(
     """
     Persist CSV trial balance preview: upsert COAs, insert trial_balance_entries as confirmed.
     Each row dict expects keys: Full name, COA, Type, Debits, Credits (as in Streamlit df).
+    Optional: bank_account_id (UUID) to attach the line to a registered bank account; otherwise
+    the TB-IMPORT book account is used.
+    After insert, seeds ledger_submissions for opening balances (see seed_ledger_opening_balances_from_trial_balance).
     """
-    ref = (reference_name or "Trial balance import").strip()[:255]
+    ref = (reference_name or "").strip()[:255]
+    if not ref:
+        return 0
     delete_pending_trial_balance_entries()
-    ba_id = ensure_trial_balance_book_bank_account_id()
+    default_ba = ensure_trial_balance_book_bank_account_id()
+    default_ba_str = str(default_ba)
     inserted = 0
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -705,6 +1639,7 @@ def save_trial_balance_csv_import(
                     (num[:20], name, at, sub),
                 )
                 coa_id = cur.fetchone()["id"]
+                row_ba = _bank_account_id_for_tb_row(cur, r, default_ba_str)
                 cur.execute(
                     """
                     INSERT INTO trial_balance_entries (
@@ -714,7 +1649,8 @@ def save_trial_balance_csv_import(
                         %s, %s, %s, %s, %s, 'confirmed'::trial_balance_status_enum
                     )
                     """,
-                    (str(ba_id), str(coa_id), ref, deb, crd),
+                    (row_ba, str(coa_id), ref, deb, crd),
                 )
                 inserted += 1
+            seed_ledger_opening_balances_from_trial_balance(cur)
     return inserted

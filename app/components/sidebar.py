@@ -1,4 +1,6 @@
 import html
+from urllib.parse import urlparse, urlunparse
+
 import streamlit as st
 from pathlib import Path
 
@@ -23,6 +25,28 @@ def _sidebar_bio_html(bio: str, max_chars: int = 220) -> str:
     if len(raw) > max_chars:
         raw = raw[: max_chars - 1].rstrip() + "…"
     return html.escape(raw).replace("\n", "<br>")
+
+
+def _streamlit_page_url(url_pathname: str) -> str:
+    """
+    Absolute URL for a multipage script pathname (e.g. New_Entry for pages/10_New_Entry.py).
+    Used with st.link_button so the link opens in a new tab with a fresh session.
+    """
+    try:
+        cur = st.context.url
+    except Exception:
+        cur = None
+    if not cur:
+        return f"/{url_pathname}"
+    u = urlparse(cur)
+    stripped = u.path.strip("/")
+    if not stripped:
+        new_path = f"/{url_pathname}"
+    else:
+        parts = stripped.split("/")
+        parts[-1] = url_pathname
+        new_path = "/" + "/".join(parts)
+    return urlunparse((u.scheme, u.netloc, new_path, "", "", ""))
 
 
 def _initials(display_name: str) -> str:
@@ -67,16 +91,17 @@ def render_sidebar(_active_page: str = "") -> None:
         st.page_link("pages/6_Ledger.py",     label="Ledger",     icon="📖")
         st.page_link("pages/7_Reports.py",    label="Reports",    icon="📊")
 
-        # New Entry button
-        st.html("""
-        <div style="padding: 0 1rem; margin-top: 0.5rem;">
-            <button class="mm-new-entry-btn">
-                <span class="material-symbols-outlined" style="font-size:1rem;">add</span>
-                New Entry
-            </button>
-        </div>
-        <div class="mm-sidebar-divider" style="margin-top:1rem;"></div>
-        """)
+        # New Entry — opens in a new tab (st.link_button; new Streamlit session per tab)
+        st.markdown('<div class="mm-new-entry-sidebar-wrap">', unsafe_allow_html=True)
+        st.link_button(
+            "New Entry",
+            _streamlit_page_url("New_Entry"),
+            type="primary",
+            width="stretch",
+            help="Add a chart of account or (later) a journal entry — opens in a new browser tab",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.html("""<div class="mm-sidebar-divider" style="margin-top:1rem;"></div>""")
 
         # Bottom navigation
         st.page_link("pages/8_Settings.py", label="Settings", icon="⚙️")

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from typing import Any
 
 BANK_COLUMN_NOT_USED = "— Not used —"
@@ -33,6 +34,8 @@ def _parse_money(cell: str) -> float:
     s = str(cell).replace("$", "").replace(",", "").replace("\t", "").strip()
     if not s:
         return 0.0
+    # Match credit card: spaced negatives like "- $1,518.22" must collapse for float()
+    s = re.sub(r"\s+", "", s)
     try:
         return float(s)
     except ValueError:
@@ -44,9 +47,8 @@ def iter_bank_csv_rows(data: bytes) -> list[list[str]]:
     return list(csv.reader(text))
 
 
-def bank_statement_csv_headers_from_bytes(data: bytes) -> tuple[list[str], int]:
-    """Return (header_cells, header_row_index). First non-empty row wins."""
-    rows = iter_bank_csv_rows(data)
+def bank_statement_headers_from_grid(rows: list[list[str]]) -> tuple[list[str], int]:
+    """Return (header_cells, header_row_index). First non-empty row in first 40 lines wins."""
     if not rows:
         return [], 0
     for i, row in enumerate(rows[:40]):
@@ -56,6 +58,12 @@ def bank_statement_csv_headers_from_bytes(data: bytes) -> tuple[list[str], int]:
         if any(hdr):
             return hdr, i
     return [], 0
+
+
+def bank_statement_csv_headers_from_bytes(data: bytes) -> tuple[list[str], int]:
+    """Return (header_cells, header_row_index). First non-empty row wins."""
+    rows = iter_bank_csv_rows(data)
+    return bank_statement_headers_from_grid(rows)
 
 
 def _col_index(headers: list[str], choice: str | None, not_used: str) -> int | None:
@@ -202,6 +210,67 @@ def build_bank_statement_preview_rows(
                 "payee": payee or "—",
                 "amount": amt,
                 "coa": coa or "—",
+            }
+        )
+    return out
+
+
+def parse_bank_statement_csv_all_rows(
+    data: bytes,
+    column_map: dict[str, str],
+    *,
+    grid_rows: list[list[str]] | None = None,
+    not_used: str = BANK_COLUMN_NOT_USED,
+    max_rows: int = 100_000,
+) -> list[dict[str, Any]]:
+    """
+    Parse every data row from a bank CSV using the same mapping as preview.
+    Each dict: date_raw, payee, description, debit_amount, credit_amount (non-negative floats).
+    Pass ``grid_rows`` when the source is a PDF (tabular extraction) instead of CSV bytes.
+    """
+    if grid_rows is not None:
+        rows_src = grid_rows
+    else:
+        rows_src = iter_bank_csv_rows(data)
+    headers, header_idx = bank_statement_headers_from_grid(rows_src)
+    if not headers:
+        return []
+
+    i_date = _col_index(headers, column_map.get(BANK_FIELD_DATE), not_used)
+    i_tt = _col_index(headers, column_map.get(BANK_FIELD_TRANSACTION_TYPE), not_used)
+    i_payee = _col_index(headers, column_map.get(BANK_FIELD_PAYEE), not_used)
+    i_amt = _col_index(headers, column_map.get(BANK_FIELD_AMOUNT), not_used)
+    i_desc = _col_index(headers, column_map.get(BANK_FIELD_DESCRIPTION), not_used)
+
+    rows = rows_src
+    out: list[dict[str, Any]] = []
+    for row in rows[header_idx + 1 :]:
+        if len(out) >= max_rows:
+            break
+        if not row or not any((c or "").strip() for c in row):
+            continue
+        payee = _cell(row, i_payee)
+        desc = _cell(row, i_desc) if i_desc is not None else ""
+        if not payee and desc:
+            payee = desc
+            desc = ""
+        amt = _parse_money(_cell(row, i_amt))
+        type_raw = _cell(row, i_tt)
+        disp_type = _display_type_from_row(amt, type_raw)
+        date_s = _cell(row, i_date)
+        if disp_type == "DEBIT":
+            debit, credit = abs(amt), 0.0
+        else:
+            debit, credit = 0.0, abs(amt)
+        if debit <= 0 and credit <= 0:
+            continue
+        out.append(
+            {
+                "date_raw": date_s,
+                "payee": payee or "",
+                "description": desc or "",
+                "debit_amount": debit,
+                "credit_amount": credit,
             }
         )
     return out

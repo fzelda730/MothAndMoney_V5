@@ -132,11 +132,11 @@ CREATE TABLE payee_rules (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payee_pattern       VARCHAR(500) NOT NULL,
     coa_id              UUID NOT NULL REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
-    template_id         UUID REFERENCES import_templates(id) ON DELETE CASCADE,
+    bank_account_id     UUID NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE,
     transaction_type    VARCHAR(10) NOT NULL DEFAULT 'debit',
     confidence          NUMERIC(4,3) NOT NULL DEFAULT 1.000,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (payee_pattern, template_id)
+    UNIQUE (payee_pattern, bank_account_id)
 );
 
 -- ============================================================
