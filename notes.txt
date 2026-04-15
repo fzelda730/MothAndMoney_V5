@@ -7,6 +7,7 @@ source app/.venv/bin/activate
 
 # Run the Streamlit app:
 streamlit run app/app.py
+# Or double-click launch.command (macOS) or ./launch.sh — see launch.html for steps.
 
 # By default the app uses bundled demo data (USE_SAMPLE_DATA=true). No database is required.
 # For database-backed data only, set USE_SAMPLE_DATA=false and configure PostgreSQL below.
@@ -35,6 +36,10 @@ streamlit run app/app.py
 
 # If the schema was applied before a new column was added (e.g. artist_title), run:
 #    psql -d moth_and_money -f app/db/migrations/001_add_artist_title.sql
+# Ledger paired posting (bank_accounts.ledger_coa_id, transactions.posting_group_id):
+#    psql -d moth_and_money -f app/db/migrations/002_ledger_posting.sql
+# TB opening lines in transactions (transaction_source_enum.trial_balance_opening):
+#    psql -d moth_and_money -f app/db/migrations/003_trial_balance_opening_source.sql
 
 # ---
 # Reset PostgreSQL for a clean test run (destroys all data in DB_NAME)
@@ -49,7 +54,9 @@ python3 ../scripts/reset_database.py --yes
 # Requires psql on your PATH. Stop Streamlit first if it holds DB connections.
 
 # ---
-# Future backlog (not implemented): General Ledger double-entry — cash/bank chart leg
-# Each import row stores bank_account_id + one coa_id (category). The offsetting cash COA
-# is not a second stored line. To show full double-entry in GL: map bank_accounts → cash
-# COA and mirror or derive offset lines in the report (separate from GL date sync).
+# General Ledger double-entry (optional): set a **ledger** chart COA per account on
+# Bank & card accounts. On import commit, the app can store a second transaction line
+# to that COA (debit/credit swapped) linked by posting_group_id. GL reports sum by coa_id
+# as usual; the Ledger page can hide the mirrored leg via a checkbox.
+# After confirming Trial Balance, the app seeds one **trial_balance_opening** transaction per
+# bank account that has a ledger COA set, matching the TB net for that COA (Ledger carry).

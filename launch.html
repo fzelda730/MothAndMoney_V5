@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moth and Money — Launch</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1c1c; }
+    h1 { font-size: 1.35rem; font-weight: 700; }
+    code { background: #f3f3f3; padding: 0.15rem 0.35rem; border-radius: 0.25rem; font-size: 0.9em; }
+    .box { border: 1px solid #c2c9bb; border-radius: 0.5rem; padding: 1rem 1.25rem; margin-top: 1rem; background: #fafafa; }
+    a { color: #154212; }
+  </style>
+</head>
+<body>
+  <h1>Moth and Money — how to start the app</h1>
+  <p>
+    This folder contains a launcher so you do not have to type the Streamlit command every time.
+  </p>
+  <div class="box">
+    <p><strong>macOS (recommended)</strong></p>
+    <p>
+      In Finder, open this project folder and <strong>double-click</strong>
+      <code>launch.command</code>.
+      A Terminal window will open and start the app. If macOS blocks it the first time, use
+      <strong>Right-click → Open</strong> and confirm.
+    </p>
+    <p>
+      If double-click does nothing, open Terminal, <code>cd</code> to this folder, run:
+      <br /><code>chmod +x launch.command</code>
+      <br />then try double-clicking again.
+    </p>
+  </div>
+  <div class="box">
+    <p><strong>Terminal (any OS)</strong></p>
+    <p>From this project folder (the one that contains the <code>app</code> directory):</p>
+    <pre style="margin:0.5rem 0; overflow:auto;"><code>source app/.venv/bin/activate
+streamlit run app/app.py</code></pre>
+    <p>Or run <code>./launch.sh</code> if you use the shell script.</p>
+  </div>
+  <div class="box">
+    <p><strong>After it starts</strong></p>
+    <p>
+      Your browser should open to the app (usually
+      <a href="http://localhost:8501">http://localhost:8501</a>).
+      Stop the server with <code>Ctrl+C</code> in the Terminal window.
+    </p>
+  </div>
+</body>
+</html>

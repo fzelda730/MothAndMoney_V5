@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error-container": "#93000a",
+                    "surface-dim": "#dadada",
+                    "primary-fixed-dim": "#a1d494",
+                    "on-tertiary": "#ffffff",
+                    "surface": "#f9f9f9",
+                    "on-primary-fixed-variant": "#23501e",
+                    "surface-bright": "#f9f9f9",
+                    "on-secondary-fixed-variant": "#474746",
+                    "on-secondary-fixed": "#1c1b1b",
+                    "primary-fixed": "#bcf0ae",
+                    "on-error": "#ffffff",
+                    "on-tertiary-fixed": "#410007",
+                    "surface-container-highest": "#e2e2e2",
+                    "on-surface-variant": "#42493e",
+                    "on-background": "#1a1c1c",
+                    "error": "#ba1a1a",
+                    "surface-container": "#eeeeee",
+                    "on-secondary": "#ffffff",
+                    "inverse-surface": "#2f3131",
+                    "secondary": "#5f5e5e",
+                    "background": "#f9f9f9",
+                    "primary-container": "#2d5a27",
+                    "on-tertiary-container": "#ffaeac",
+                    "on-surface": "#1a1c1c",
+                    "surface-variant": "#e2e2e2",
+                    "outline": "#72796e",
+                    "primary": "#154212",
+                    "tertiary-fixed-dim": "#ffb3b1",
+                    "on-secondary-container": "#636262",
+                    "on-primary-fixed": "#002201",
+                    "on-tertiary-fixed-variant": "#832329",
+                    "surface-tint": "#3b6934",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-high": "#e8e8e8",
+                    "secondary-container": "#e2dfde",
+                    "tertiary": "#71151d",
+                    "inverse-on-surface": "#f1f1f1",
+                    "tertiary-fixed": "#ffdad8",
+                    "secondary-fixed-dim": "#c8c6c5",
+                    "on-primary-container": "#9dd090",
+                    "on-primary": "#ffffff",
+                    "secondary-fixed": "#e5e2e1",
+                    "inverse-primary": "#a1d494",
+                    "outline-variant": "#c2c9bb",
+                    "tertiary-container": "#902d31",
+                    "surface-container-low": "#f3f3f3",
+                    "error-container": "#ffdad6"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-effect {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface">
+<!-- TopNavBar -->
+<nav class="bg-[#f9f9f9] dark:bg-stone-950 flex justify-between items-center w-full px-12 py-4 fixed top-0 z-50 tonal-shift-bg">
+<div class="flex items-center gap-8">
+<span class="font-manrope font-black text-xl text-[#1a1c1c] dark:text-stone-100">Moth and Money</span>
+<div class="hidden md:flex gap-6 items-center">
+<a class="text-[#636262] dark:text-stone-400 font-inter font-medium text-sm hover:bg-stone-200/50 dark:hover:bg-stone-800/50 transition-colors px-3 py-1 rounded" href="#">Dashboard</a>
+<a class="text-[#154212] dark:text-[#a1d494] font-bold border-b-2 border-[#154212] font-inter text-sm px-3 py-1" href="#">Reports</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-[#636262] hover:bg-stone-200/50 p-2 rounded-full transition-colors">notifications</button>
+<button class="material-symbols-outlined text-[#636262] hover:bg-stone-200/50 p-2 rounded-full transition-colors">help</button>
+<div class="w-8 h-8 rounded-full overflow-hidden ml-2">
+<img alt="User profile" data-alt="close up professional portrait of a person with a creative and modern style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqPWq16q8W-86kLH2PKC5nQ8nAT3qtCNW0R3mW4T7i9jHURB72Z1m3omQFELvvLQ0uX2Jv5fQkFdLNYTkMVMmIm48TlZ8qSijU3d4bEHTzUDAAQENFzB64IsNqUtMNLbEhsTu3pp1mYo45bQ8iiXrnWnhX4VBApN0Q3Gc1jwMDaJ1cZ0bKuGvxUDvEV4KabDXj_ty18A2woPEoQoSpoUcwoCg-XWlurPety_Vo9Yvsu7o01GncTWa_YStWZV2N4gx10EUcqibORRs"/>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-[#f3f3f3]/80 dark:bg-stone-900/80 backdrop-blur-md flex flex-col pt-24 pb-4 z-40">
+<div class="flex-grow flex flex-col gap-1 px-4">
+<a class="text-[#636262] dark:text-stone-400 px-4 py-2 mx-2 hover:bg-[#eeeeee] dark:hover:bg-stone-800 rounded-md transition-all flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-inter font-medium text-sm">Dashboard</span>
+</a>
+<a class="text-[#636262] dark:text-stone-400 px-4 py-2 mx-2 hover:bg-[#eeeeee] dark:hover:bg-stone-800 rounded-md transition-all flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">person_add</span>
+<span class="font-inter font-medium text-sm">Onboarding</span>
+</a>
+<a class="text-[#636262] dark:text-stone-400 px-4 py-2 mx-2 hover:bg-[#eeeeee] dark:hover:bg-stone-800 rounded-md transition-all flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+<span class="font-inter font-medium text-sm">Ledger</span>
+</a>
+<a class="bg-[#a1d494] dark:bg-[#2d5a27] text-[#154212] dark:text-[#ffffff] rounded-md px-4 py-2 mx-2 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="font-inter font-medium text-sm">Reports</span>
+</a>
+</div>
+<div class="px-4 pt-4 mt-auto">
+<a class="text-[#636262] dark:text-stone-400 px-4 py-2 mx-2 hover:bg-[#eeeeee] dark:hover:bg-stone-800 rounded-md transition-all flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-inter font-medium text-sm">Settings</span>
+</a>
+<a class="text-[#636262] dark:text-stone-400 px-4 py-2 mx-2 hover:bg-[#eeeeee] dark:hover:bg-stone-800 rounded-md transition-all flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-inter font-medium text-sm">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Stage -->
+<main class="ml-64 pt-24 px-12 pb-24 min-h-screen">
+<!-- Editorial Header Section -->
+<header class="mb-12 mt-12 max-w-4xl">
+<h2 class="text-secondary font-headline tracking-tighter text-sm mb-1 opacity-70">Moth and Money Ledger For Creatives</h2>
+<h1 class="text-on-surface font-headline text-5xl font-extrabold tracking-tighter leading-none mb-4">General Ledger Report</h1>
+<p class="text-on-secondary-container font-body max-w-xl text-sm leading-relaxed">
+            A meticulous trace of every creative transaction. Every moth has its light; every penny has its purpose.
+        </p>
+</header>
+<!-- Controls / Filters Surface -->
+<section class="mb-12 flex flex-wrap items-end gap-8">
+<div class="flex flex-col gap-2 min-w-[180px]">
+<label class="text-[10px] font-bold uppercase tracking-widest text-secondary">Start Date</label>
+<div class="relative">
+<input class="w-full bg-transparent border-b border-outline-variant/40 focus:border-primary focus:ring-0 transition-all py-1.5 font-inter text-xs" type="date" value="2024-01-01"/>
+</div>
+</div>
+<div class="flex flex-col gap-2 min-w-[180px]">
+<label class="text-[10px] font-bold uppercase tracking-widest text-secondary">End Date</label>
+<div class="relative">
+<input class="w-full bg-transparent border-b border-outline-variant/40 focus:border-primary focus:ring-0 transition-all py-1.5 font-inter text-xs" type="date" value="2024-12-31"/>
+</div>
+</div>
+<div class="flex flex-col gap-2 min-w-[220px]">
+<label class="text-[10px] font-bold uppercase tracking-widest text-secondary">Account Filter</label>
+<select class="w-full bg-transparent border-b border-outline-variant/40 focus:border-primary focus:ring-0 transition-all py-1.5 font-inter text-xs appearance-none cursor-pointer">
+<option>All Accounts</option>
+<option>1100 - Operating Cash</option>
+<option>1200 - Accounts Receivable</option>
+<option>4100 - Studio Service Revenue</option>
+</select>
+</div>
+<button class="bg-primary text-on-primary px-6 py-2 rounded-sm font-manrope font-bold text-xs tracking-wide hover:opacity-90 transition-opacity">
+            GENERATE REPORT
+        </button>
+</section>
+<!-- Ledger Entries - Digital Atelier Layout -->
+<div class="space-y-12 max-w-6xl">
+<!-- Account Section: 1100 Cash -->
+<section class="relative group">
+<!-- Vertical Accent -->
+<div class="absolute -left-6 top-0 bottom-0 w-px bg-primary/10 group-hover:bg-primary/40 transition-colors"></div>
+<div class="flex justify-between items-baseline mb-4">
+<div>
+<h3 class="font-headline text-2xl font-bold tracking-tight text-on-surface">1100 - Operating Cash</h3>
+<p class="text-secondary font-inter text-[10px] mt-0.5 uppercase tracking-widest">Asset Account</p>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-secondary block font-bold tracking-widest uppercase">Beginning Balance</span>
+<span class="text-xl font-headline font-medium">$12,450.00</span>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse">
+<thead>
+<tr class="border-b border-outline-variant/15">
+<th class="text-left py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Date</th>
+<th class="text-left py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Payee / Description</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Debits</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Credits</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Running</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-3 px-2 font-inter text-xs">Oct 12, 2024</td>
+<td class="py-3 px-2 font-inter text-xs font-medium">Indigo Studio - Retainer Payment</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-primary font-semibold">$3,500.00</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-secondary">—</td>
+<td class="py-3 px-2 text-right font-inter text-xs">$15,950.00</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-3 px-2 font-inter text-xs">Oct 15, 2024</td>
+<td class="py-3 px-2 font-inter text-xs font-medium">Urban Supplies Co. - Paint &amp; Canvas</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-secondary">—</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-tertiary font-semibold">$425.50</td>
+<td class="py-3 px-2 text-right font-inter text-xs">$15,524.50</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-3 px-2 font-inter text-xs">Oct 18, 2024</td>
+<td class="py-3 px-2 font-inter text-xs font-medium">Monthly Rent - Studio B</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-secondary">—</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-tertiary font-semibold">$2,200.00</td>
+<td class="py-3 px-2 text-right font-inter text-xs">$13,324.50</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Account Section: 4100 Revenue -->
+<section class="relative group">
+<div class="absolute -left-6 top-0 bottom-0 w-px bg-primary/10 group-hover:bg-primary/40 transition-colors"></div>
+<div class="flex justify-between items-baseline mb-4">
+<div>
+<h3 class="font-headline text-2xl font-bold tracking-tight text-on-surface">4100 - Studio Service Revenue</h3>
+<p class="text-secondary font-inter text-[10px] mt-0.5 uppercase tracking-widest">Income Account</p>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-secondary block font-bold tracking-widest uppercase">Beginning Balance</span>
+<span class="text-xl font-headline font-medium">$45,200.00</span>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse">
+<thead>
+<tr class="border-b border-outline-variant/15">
+<th class="text-left py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Date</th>
+<th class="text-left py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Payee / Description</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Debits</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Credits</th>
+<th class="text-right py-2 px-2 text-[10px] font-bold uppercase tracking-widest text-secondary">Running</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-3 px-2 font-inter text-xs">Oct 12, 2024</td>
+<td class="py-3 px-2 font-inter text-xs font-medium">Indigo Studio - Project Phase 1</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-secondary">—</td>
+<td class="py-3 px-2 text-right font-inter text-xs text-primary font-semibold">$3,500.00</td>
+<td class="py-3 px-2 text-right font-inter text-xs">$48,700.00</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</div>
+<!-- Artistic Footer Banner -->
+<footer class="border-t border-outline-variant/15 pt-12 mt-16">
+<div class="mt-12 py-6 flex justify-between items-center text-[10px] uppercase font-bold tracking-widest text-secondary/60">
+<span>© 2024 Moth and Money Ledger</span>
+<div class="flex gap-6">
+<a class="hover:text-primary transition-colors" href="#">Privacy</a>
+<a class="hover:text-primary transition-colors" href="#">Terms</a>
+<a class="hover:text-primary transition-colors" href="#">Archive</a>
+</div>
+</div>
+</footer>
+</main>
+<!-- Floating Action - Re-generate Report -->
+<div class="fixed bottom-6 right-6 z-50">
+<button class="bg-primary text-on-primary w-12 h-12 rounded-full flex items-center justify-center shadow-2xl hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">download</span>
+</button>
+</div>
+</body></html>

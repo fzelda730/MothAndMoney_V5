@@ -67,7 +67,9 @@ def tax_provision():
     return TAX_PROVISION
 
 
-def ledger_transactions(bank_account_id: str | None):
+def ledger_transactions(
+    bank_account_id: str | None, *, classification_only: bool = False
+):
     if use_sample_data():
         from data.sample_data import LEDGER_TRANSACTIONS
 
@@ -76,7 +78,9 @@ def ledger_transactions(bank_account_id: str | None):
 
     if not bank_account_id:
         return []
-    return queries.fetch_ledger_transactions(bank_account_id)
+    return queries.fetch_ledger_transactions(
+        bank_account_id, classification_only=classification_only
+    )
 
 
 def ledger_summary(bank_account_id: str | None):
@@ -382,28 +386,6 @@ def save_trial_balance_csv_to_db(reference_name: str, rows: list[dict]) -> int:
     return queries.save_trial_balance_csv_import(reference_name, rows)
 
 
-def bank_accounts_for_tb_mapping() -> list[dict]:
-    """
-    Registered bank accounts for mapping trial balance lines (excludes TB-IMPORT book).
-    Each dict: id, account_name, account_number_masked.
-    """
-    if use_sample_data():
-        from data.sample_data import BANK_ACCOUNTS
-
-        return [
-            {
-                "id": a["id"],
-                "account_name": a["account_name"],
-                "account_number_masked": str(a.get("masked") or "").strip(),
-            }
-            for a in BANK_ACCOUNTS
-            if (a.get("account_type") or "").lower() != "cash"
-        ]
-    from db import queries
-
-    return queries.fetch_bank_accounts_for_tb_mapping()
-
-
 def save_bank_statement_template_to_db(template_name: str, column_map: dict) -> str:
     """Insert a bank statement import template. Returns new row id, or empty string if demo or failure."""
     if use_sample_data():
@@ -641,6 +623,17 @@ def save_bank_account_to_db(
         return None, str(e)
 
 
+def update_bank_account_ledger_coa_in_db(
+    bank_account_id: str, ledger_coa_id: str | None
+) -> str | None:
+    """Persist bank/card ledger chart account for paired postings. Returns None on success."""
+    if use_sample_data():
+        return "Set USE_SAMPLE_DATA=false in app/.env to save ledger COA in PostgreSQL."
+    from db import queries
+
+    return queries.update_bank_account_ledger_coa(bank_account_id, ledger_coa_id)
+
+
 def delete_bank_account_from_db(bank_account_id: str) -> str | None:
     """
     Remove a bank account when it has no transactions. Returns None on success, else message.
@@ -860,6 +853,7 @@ def commit_ledger_csv_import(
         if cid and pn:
             persist_payee_rule_for_bank_account(aid, pn, cid)
 
+    # Count is source CSV lines (not DB rows); paired posting may insert two rows per line.
     return len(txn_payload), None
 
 

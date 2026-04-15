@@ -26,7 +26,6 @@ from data.coa_fuzzy_match import (
     trial_balance_csv_headers_from_bytes,
 )
 from data.providers import (
-    bank_accounts_for_tb_mapping,
     chart_of_accounts,
     db_ready,
     discard_pending_trial_balance,
@@ -75,27 +74,6 @@ def _looks_like_tb_import_account_line_label(s: str) -> bool:
     if not t:
         return False
     return t in ("tb-import", "tbimport") or "tb-import" in t
-
-
-def _apply_tb_bank_mapping_to_records(records: list[dict]) -> int:
-    """
-    Set bank_account_id on each row from sidebar selectboxes (key tb_bank_map_*).
-    Returns count of rows assigned to a real bank account.
-    """
-    baa = bank_accounts_for_tb_mapping()
-    if not baa:
-        return 0
-    ids = [None] + [a["id"] for a in baa]
-    n = 0
-    for rec in records:
-        fn = str(rec.get("Full name", "")).strip()
-        h = hashlib.md5(fn.encode("utf-8")).hexdigest()[:16]
-        key = f"tb_bank_map_{h}"
-        idx = int(st.session_state.get(key, 0))
-        if 0 < idx < len(ids):
-            rec["bank_account_id"] = ids[idx]
-            n += 1
-    return n
 
 
 def _is_blank_coa_cell(value: object) -> bool:
@@ -993,49 +971,6 @@ with col_right:
                     "(e.g. account number and title from your file), not a fixed book label."
                 )
 
-        if n_preview > 0:
-            baa = bank_accounts_for_tb_mapping()
-            if baa:
-                with st.expander(
-                    "Map account lines to bank accounts (Ledger opening balance)",
-                    expanded=True,
-                ):
-                    st.caption(
-                        "For each distinct **Account line**, choose a registered bank account. "
-                        "The Ledger opening balance uses the net of mapped lines (debits minus credits) "
-                        "per account. Choose **Book only** to keep those lines on the TB import book "
-                        "(no effect on a real bank account)."
-                    )
-                    distinct_fn = (
-                        st.session_state["tb_csv_df"]["Full name"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                    )
-                    seen: list[str] = []
-                    labels = ["— Book only (TB-IMPORT) —"] + [
-                        f"{a['account_name']} ****{a['account_number_masked']}" for a in baa
-                    ]
-                    for fn in distinct_fn:
-                        fn = str(fn).strip()
-                        if not fn or fn in seen:
-                            continue
-                        seen.append(fn)
-                        h = hashlib.md5(fn.encode("utf-8")).hexdigest()[:16]
-                        key = f"tb_bank_map_{h}"
-                        st.selectbox(
-                            f"Account line: {fn[:120]}",
-                            options=list(range(len(labels))),
-                            format_func=lambda i, lb=labels: lb[i],
-                            key=key,
-                        )
-            elif not use_sample_data():
-                st.info(
-                    "Add at least one **checking, savings, or credit card** under **Bank Accounts** to "
-                    "map trial balance lines here. Until then, lines save only to the book-only import "
-                    "account (**TB-IMPORT**), and the Ledger opening-balance seed does not apply to "
-                    "named bank accounts."
-                )
     else:
         rows_html = ""
         for row in TRIAL_BALANCE_IMPORT_PREVIEW:
@@ -1190,19 +1125,12 @@ with col_right:
                     )
                 elif tb_csv_mode:
                     records = st.session_state["tb_csv_df"].to_dict("records")
-                    n_mapped = _apply_tb_bank_mapping_to_records(records)
                     n = save_trial_balance_csv_to_db(ref, records)
                     path_tb = export_trial_balance_grid_csv(records, ref)
                     path_coa = export_chart_of_accounts_csv(chart_of_accounts())
-                    extra = ""
-                    if n_mapped:
-                        extra = (
-                            f" **{n_mapped}** line(s) mapped to bank accounts; "
-                            "Ledger opening balances were seeded from the trial balance."
-                        )
                     st.success(
                         f"Saved **{n}** trial balance line(s) to PostgreSQL (chart + "
-                        f"`trial_balance_entries`).{extra} CSV snapshots: `{path_tb.name}` and "
+                        f"`trial_balance_entries`). CSV snapshots: `{path_tb.name}` and "
                         f"`{path_coa.name}` in `app/exports/`."
                     )
                 else:

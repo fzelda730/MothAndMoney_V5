@@ -24,7 +24,7 @@ CREATE TYPE template_type_enum AS ENUM (
 );
 
 CREATE TYPE transaction_source_enum AS ENUM (
-    'bank_import', 'credit_card_import'
+    'bank_import', 'credit_card_import', 'trial_balance_opening'
 );
 
 CREATE TYPE transaction_status_enum AS ENUM (
@@ -116,6 +116,7 @@ CREATE TABLE bank_accounts (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bank_id                 UUID NOT NULL REFERENCES banks(id) ON DELETE RESTRICT,
     template_id             UUID REFERENCES import_templates(id) ON DELETE SET NULL,
+    ledger_coa_id           UUID REFERENCES chart_of_accounts(id) ON DELETE SET NULL,
     account_name            VARCHAR(255) NOT NULL,
     account_number_masked   VARCHAR(10) NOT NULL,
     account_type            account_type_enum NOT NULL,
@@ -179,6 +180,7 @@ CREATE TABLE transactions (
     bank_account_id UUID NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE,
     import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL,
     coa_id          UUID REFERENCES chart_of_accounts(id) ON DELETE SET NULL,
+    posting_group_id UUID,
     date            DATE NOT NULL,
     payee           VARCHAR(500) NOT NULL,
     payee_normalized VARCHAR(500),
@@ -197,6 +199,8 @@ CREATE INDEX idx_transactions_date ON transactions(date);
 CREATE INDEX idx_transactions_status ON transactions(status);
 CREATE INDEX idx_transactions_coa ON transactions(coa_id);
 CREATE INDEX idx_transactions_categorized ON transactions(is_categorized);
+CREATE INDEX idx_transactions_posting_group ON transactions(posting_group_id)
+    WHERE posting_group_id IS NOT NULL;
 
 -- ============================================================
 -- LEDGER SUBMISSIONS (immutable period-close audit log)
@@ -244,6 +248,11 @@ LEFT JOIN (
 ) ls ON ls.bank_account_id = ba.id
 LEFT JOIN transactions t ON t.bank_account_id = ba.id
     AND t.status IN ('cleared', 'pending')
+    AND (
+        ba.ledger_coa_id IS NULL
+        OR t.coa_id IS DISTINCT FROM ba.ledger_coa_id
+        OR t.source = 'trial_balance_opening'::transaction_source_enum
+    )
 WHERE ba.is_active = TRUE
 GROUP BY ba.id, ba.account_name, ba.account_type,
          ba.account_number_masked, b.bank_name, ls.ending_balance;

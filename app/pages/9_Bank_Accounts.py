@@ -14,10 +14,12 @@ from components.topbar import render_topbar
 from data.providers import (
     bank_accounts_manage,
     banks_for_onboarding,
+    chart_of_accounts,
     db_ready,
     delete_bank_account_from_db,
     import_templates,
     save_bank_account_to_db,
+    update_bank_account_ledger_coa_in_db,
 )
 from db.connection import use_sample_data
 
@@ -212,23 +214,61 @@ if submitted:
 
 st.divider()
 st.subheader("Registered accounts")
+st.caption(
+    "Optional **ledger chart account**: when set, each committed import line posts a second row to that COA "
+    "(debit/credit swapped) so the GL has both classification and bank/card legs. "
+    "Use a cash/bank asset for checking and savings; a card liability account for credit cards."
+)
+
+_coa_rows = chart_of_accounts()
+_ledger_coa_labels = ["— None —"]
+_ledger_coa_ids: list[str | None] = [None]
+for _ca in _coa_rows:
+    _cid = (_ca.get("id") or "").strip()
+    if not _cid:
+        continue
+    _ledger_coa_labels.append(f"{_ca['number']} - {_ca['name']}")
+    _ledger_coa_ids.append(_cid)
 
 rows = _managed_accounts
 if not rows:
     st.caption("No accounts yet.")
 else:
     for r in rows:
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1:
-            txn = int(r.get("txn_count") or 0)
-            tn = r.get("template_name") or "—"
-            st.markdown(
-                f"**{r['account_name']}** ({r['bank_name']}) · ****{r['account_number_masked']} · "
-                f"{r['account_type'].replace('_', ' ')} · template: {tn} · **{txn}** transaction(s)"
+        txn = int(r.get("txn_count") or 0)
+        tn = r.get("template_name") or "—"
+        st.markdown(
+            f"**{r['account_name']}** ({r['bank_name']}) · ****{r['account_number_masked']} · "
+            f"{r['account_type'].replace('_', ' ')} · template: {tn} · **{txn}** transaction(s)"
+        )
+        _lc = (r.get("ledger_coa_id") or "").strip()
+        _cur_i = _ledger_coa_ids.index(_lc) if _lc in _ledger_coa_ids else 0
+        _lc_widget_key = f"ledger_coa_ui_{r['id']}_{_lc or 'none'}"
+        c_a, c_b, c_c = st.columns([2, 2, 1])
+        with c_a:
+            st.selectbox(
+                "Ledger COA (double-entry)",
+                options=list(range(len(_ledger_coa_labels))),
+                format_func=lambda i, lb=_ledger_coa_labels: lb[i],
+                index=_cur_i,
+                key=_lc_widget_key,
+                help="Mirrored posting for imports. Leave unset for a single line per row (classification only).",
             )
-        with c2:
-            pass
-        with c3:
+        with c_b:
+            st.write("")
+            st.write("")
+            if st.button("Save ledger COA", key=f"save_lc_{r['id']}", type="primary"):
+                _pick = int(st.session_state.get(_lc_widget_key, _cur_i))
+                _new = _ledger_coa_ids[_pick]
+                _err = update_bank_account_ledger_coa_in_db(r["id"], _new)
+                if _err:
+                    st.error(_err)
+                else:
+                    st.session_state["_ledger_coa_saved"] = True
+                    st.rerun()
+        with c_c:
+            st.write("")
+            st.write("")
             if txn > 0:
                 st.caption("Cannot remove while transactions exist.")
             else:
@@ -239,6 +279,9 @@ else:
                     else:
                         st.session_state["_acct_removed_ok"] = True
                         st.rerun()
+        st.markdown("")
 
 if st.session_state.pop("_acct_removed_ok", False):
     st.success("Account removed.")
+if st.session_state.pop("_ledger_coa_saved", False):
+    st.success("Ledger chart account saved.")

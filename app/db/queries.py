@@ -9,6 +9,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+import uuid
 from uuid import UUID
 
 from psycopg2 import errors as pg_errors
@@ -324,16 +325,57 @@ def fetch_bank_accounts_manage() -> list[dict[str, Any]]:
                     ba.account_type::text AS account_type,
                     ba.template_id::text AS template_id,
                     it.template_name AS template_name,
-                    (SELECT COUNT(*) FROM transactions t WHERE t.bank_account_id = ba.id)::int AS txn_count
+                    ba.ledger_coa_id::text AS ledger_coa_id,
+                    lc.account_number AS ledger_account_number,
+                    lc.account_name AS ledger_account_name,
+                    (
+                        SELECT COUNT(*)::int FROM transactions t
+                        WHERE t.bank_account_id = ba.id
+                          AND (
+                              ba.ledger_coa_id IS NULL
+                              OR t.coa_id IS DISTINCT FROM ba.ledger_coa_id
+                              OR t.source = 'trial_balance_opening'::transaction_source_enum
+                          )
+                    ) AS txn_count
                 FROM bank_accounts ba
                 JOIN banks b ON b.id = ba.bank_id
                 LEFT JOIN import_templates it ON it.id = ba.template_id
+                LEFT JOIN chart_of_accounts lc ON lc.id = ba.ledger_coa_id
                 WHERE ba.is_active = TRUE
                 ORDER BY b.bank_name, ba.account_name
                 """
             )
             rows = cur.fetchall()
     return [dict(r) for r in rows]
+
+
+def update_bank_account_ledger_coa(
+    bank_account_id: str, ledger_coa_id: str | None
+) -> str | None:
+    """Set or clear ledger_coa_id. Returns None on success, else error message."""
+    aid = (bank_account_id or "").strip()
+    if not aid:
+        return "Missing account id."
+    lid = (ledger_coa_id or "").strip() or None
+    if lid:
+        try:
+            UUID(lid)
+        except ValueError:
+            return "Invalid chart account id."
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE bank_accounts
+                SET ledger_coa_id = %s::uuid
+                WHERE id = %s::uuid AND is_active = TRUE
+                """,
+                (lid, aid),
+            )
+            if cur.rowcount == 0:
+                return "Account not found or inactive."
+    resync_trial_balance_opening_transactions()
+    return None
 
 
 def delete_bank_account_if_safe(bank_account_id: str) -> str | None:
@@ -630,20 +672,41 @@ def delete_chart_of_account(coa_id: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
-def fetch_ledger_transactions(bank_account_id: str) -> list[dict[str, Any]]:
-    """Aligned with LEDGER_TRANSACTIONS."""
+def fetch_ledger_transactions(
+    bank_account_id: str, *, classification_only: bool = False
+) -> list[dict[str, Any]]:
+    """Aligned with LEDGER_TRANSACTIONS.
+
+    When classification_only is True, omit mirrored ledger-leg rows (coa_id = bank ledger COA)
+    so the register shows one line per import event when double-posting is enabled.
+    """
+    aid = (bank_account_id or "").strip()
+    if not aid:
+        return []
+    extra = ""
+    if classification_only:
+        extra = """
+            AND (
+                ba.ledger_coa_id IS NULL
+                OR t.coa_id IS DISTINCT FROM ba.ledger_coa_id
+                OR t.source = 'trial_balance_opening'::transaction_source_enum
+            )
+        """
+    params: tuple[Any, ...] = (aid,)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT t.date, t.payee, t.description, t.debit_amount, t.credit_amount,
                        t.status::text AS st, coa.account_number
                 FROM transactions t
+                JOIN bank_accounts ba ON ba.id = t.bank_account_id
                 LEFT JOIN chart_of_accounts coa ON coa.id = t.coa_id
-                WHERE t.bank_account_id = %s
+                WHERE t.bank_account_id = %s::uuid
+                {extra}
                 ORDER BY t.date DESC, t.created_at DESC
                 """,
-                (bank_account_id,),
+                params,
             )
             rows = cur.fetchall()
 
@@ -816,6 +879,9 @@ def insert_ledger_import_batch_and_transactions(
     debit_amount (float), credit_amount (float), description (str|None), coa_id (str|None),
     source ('bank_import'|'credit_card_import').
 
+    When bank_accounts.ledger_coa_id is set and differs from classification coa_id, inserts a
+    second row with that COA and debit/credit swapped, sharing posting_group_id with the first leg.
+
     Returns the new import_batches id as text.
     """
     aid = (bank_account_id or "").strip()
@@ -830,6 +896,17 @@ def insert_ledger_import_batch_and_transactions(
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT ledger_coa_id::text AS ledger_coa_id
+                FROM bank_accounts
+                WHERE id = %s::uuid
+                """,
+                (aid,),
+            )
+            ba_row = cur.fetchone()
+            ledger_coa_raw = (ba_row["ledger_coa_id"] or "").strip() if ba_row else ""
+
+            cur.execute(
+                """
                 INSERT INTO import_batches (
                     bank_account_id, template_id, filename, period_start, period_end,
                     record_count, status
@@ -837,7 +914,7 @@ def insert_ledger_import_batch_and_transactions(
                 VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, 'processing'::batch_status_enum)
                 RETURNING id::text AS id
                 """,
-                (aid, tid, fn[:500], period_start, period_end, len(transaction_rows)),
+                (aid, tid, fn[:500], period_start, period_end, 0),
             )
             batch_row = cur.fetchone()
             batch_id = str(batch_row["id"])
@@ -847,32 +924,69 @@ def insert_ledger_import_batch_and_transactions(
                 d = r["date"]
                 if isinstance(d, datetime):
                     d = d.date()
+                cls_coa = (r.get("coa_id") or "").strip() or None
+                deb = float(r.get("debit_amount") or 0)
+                crd = float(r.get("credit_amount") or 0)
+                src = r.get("source") or "bank_import"
+                desc = r.get("description")
+                payee = (r.get("payee") or "")[:500]
+                payee_n = (r.get("payee_normalized") or "")[:500]
+
+                second_leg = bool(
+                    ledger_coa_raw
+                    and cls_coa
+                    and ledger_coa_raw != cls_coa
+                )
+                group_id: str | None = str(uuid.uuid4()) if second_leg else None
+
                 tuples.append(
                     (
                         aid,
                         batch_id,
-                        r.get("coa_id"),
+                        cls_coa,
+                        group_id,
                         d,
-                        (r.get("payee") or "")[:500],
-                        (r.get("payee_normalized") or "")[:500],
-                        float(r.get("debit_amount") or 0),
-                        float(r.get("credit_amount") or 0),
-                        r.get("description"),
-                        r.get("source") or "bank_import",
+                        payee,
+                        payee_n,
+                        deb,
+                        crd,
+                        desc,
+                        src,
                         "cleared",
                     )
                 )
+                if second_leg:
+                    tuples.append(
+                        (
+                            aid,
+                            batch_id,
+                            ledger_coa_raw,
+                            group_id,
+                            d,
+                            payee,
+                            payee_n,
+                            crd,
+                            deb,
+                            desc,
+                            src,
+                            "cleared",
+                        )
+                    )
 
+            n_inserted = len(tuples)
             execute_values(
                 cur,
                 """
                 INSERT INTO transactions (
-                    bank_account_id, import_batch_id, coa_id, date, payee, payee_normalized,
-                    debit_amount, credit_amount, description, source, status
+                    bank_account_id, import_batch_id, coa_id, posting_group_id, date, payee,
+                    payee_normalized, debit_amount, credit_amount, description, source, status
                 ) VALUES %s
                 """,
                 tuples,
-                template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::transaction_source_enum, %s::transaction_status_enum)",
+                template=(
+                    "(%s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, "
+                    "%s::transaction_source_enum, %s::transaction_status_enum)"
+                ),
             )
 
             cur.execute(
@@ -882,7 +996,7 @@ def insert_ledger_import_batch_and_transactions(
                     record_count = %s
                 WHERE id = %s::uuid
                 """,
-                (len(transaction_rows), batch_id),
+                (n_inserted, batch_id),
             )
 
     return batch_id
@@ -1343,26 +1457,6 @@ def fetch_general_ledger_detail(
     return out
 
 
-TB_OPENING_SUBMISSION_LABEL = "Opening from trial balance"
-
-
-def fetch_bank_accounts_for_tb_mapping() -> list[dict[str, Any]]:
-    """Active bank accounts for mapping TB lines to Ledger (excludes TB-IMPORT book)."""
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT ba.id::text AS id, ba.account_name, ba.account_number_masked
-                FROM bank_accounts ba
-                WHERE ba.is_active = TRUE
-                  AND ba.account_number_masked <> 'TB-IMPORT'
-                ORDER BY ba.account_name
-                """
-            )
-            rows = cur.fetchall()
-    return [dict(r) for r in rows]
-
-
 def _bank_account_id_for_tb_row(cur, row: dict[str, Any], default_id: str) -> str:
     raw = row.get("bank_account_id") or row.get("Bank account id")
     if raw is None or str(raw).strip() == "":
@@ -1381,12 +1475,17 @@ def _bank_account_id_for_tb_row(cur, row: dict[str, Any], default_id: str) -> st
     return default_id
 
 
-def seed_ledger_opening_balances_from_trial_balance(cur) -> int:
+def seed_opening_transactions_from_trial_balance(cur, reference_name: str) -> int:
     """
-    Replace prior opening submissions with this label, then insert one row per bank account
-    that has confirmed trial_balance_entries (excluding the TB-IMPORT book account).
-    ending_balance = SUM(debit_amount) - SUM(credit_amount) for that account.
+    One cleared transaction per bank account with ledger_coa_id: net TB amount for that COA
+    on the TB-IMPORT book. Replaces prior trial_balance_opening rows so re-confirming TB is idempotent.
+
+    Amounts use bank-register columns (debit reduces carry, credit increases) to match
+    v_account_balances and CSV imports—not raw GAAP debit/credit on the TB line.
     """
+    ref = (reference_name or "").strip()[:255]
+    if not ref:
+        return 0
     cur.execute(
         """
         SELECT id::text FROM bank_accounts
@@ -1399,41 +1498,101 @@ def seed_ledger_opening_balances_from_trial_balance(cur) -> int:
         return 0
 
     cur.execute(
-        "DELETE FROM ledger_submissions WHERE period_label = %s",
-        (TB_OPENING_SUBMISSION_LABEL,),
+        """
+        DELETE FROM transactions
+        WHERE source = 'trial_balance_opening'::transaction_source_enum
+        """
     )
 
     cur.execute(
         """
-        SELECT bank_account_id::text AS bid,
-               COALESCE(SUM(debit_amount), 0) AS sdeb,
-               COALESCE(SUM(credit_amount), 0) AS scrd
-        FROM trial_balance_entries
-        WHERE status = 'confirmed'::trial_balance_status_enum
-          AND bank_account_id <> %s::uuid
-        GROUP BY bank_account_id
-        """,
-        (tb_import_id,),
+        SELECT ba.id::text AS ba_id, ba.ledger_coa_id::text AS lcid
+        FROM bank_accounts ba
+        WHERE ba.is_active = TRUE AND ba.ledger_coa_id IS NOT NULL
+        """
     )
-    groups = cur.fetchall()
+    accounts = cur.fetchall()
     today = date.today()
+    payee = "Trial balance opening"
+    payee_n = "trial balance opening"
     n_ins = 0
-    for g in groups:
-        bid = g["bid"]
-        net = float(g["sdeb"]) - float(g["scrd"])
+    for acc in accounts:
+        bid = acc["ba_id"]
+        lcid = acc["lcid"]
         cur.execute(
             """
-            INSERT INTO ledger_submissions (
-                bank_account_id, period_label, period_start, period_end,
-                beginning_balance, total_debits, total_credits, ending_balance
+            SELECT COALESCE(SUM(te.debit_amount), 0) AS sdeb,
+                   COALESCE(SUM(te.credit_amount), 0) AS scrd
+            FROM trial_balance_entries te
+            WHERE te.status = 'confirmed'::trial_balance_status_enum
+              AND te.bank_account_id = %s::uuid
+              AND te.coa_id = %s::uuid
+              AND te.reference_name = %s
+            """,
+            (tb_import_id, lcid, ref),
+        )
+        rrow = cur.fetchone()
+        sdeb = float(rrow["sdeb"] or 0)
+        scrd = float(rrow["scrd"] or 0)
+        net = sdeb - scrd
+        if abs(net) < 0.0001:
+            continue
+        # Bank-register: ending = baseline - debits + credits (same as statement imports).
+        # Positive TB net (asset-style) → credit column so carry increases.
+        if net >= 0:
+            deb_amt, cr_amt = 0.0, net
+        else:
+            deb_amt, cr_amt = -net, 0.0
+        cur.execute(
+            """
+            INSERT INTO transactions (
+                bank_account_id, import_batch_id, coa_id, posting_group_id, date,
+                payee, payee_normalized, debit_amount, credit_amount, description,
+                source, status, is_categorized
             ) VALUES (
-                %s::uuid, %s, %s, %s, 0, 0, 0, %s
+                %s::uuid, NULL, %s::uuid, NULL, %s,
+                %s, %s, %s, %s, %s,
+                'trial_balance_opening'::transaction_source_enum,
+                'cleared'::transaction_status_enum, TRUE
             )
             """,
-            (bid, TB_OPENING_SUBMISSION_LABEL, today, today, net),
+            (
+                bid,
+                lcid,
+                today,
+                payee[:500],
+                payee_n[:500],
+                deb_amt,
+                cr_amt,
+                f"Opening ({ref})"[:500],
+            ),
         )
         n_ins += 1
     return n_ins
+
+
+def resync_trial_balance_opening_transactions() -> None:
+    """
+    Re-run TB opening seed using the latest confirmed trial balance batch (by imported_at).
+    Call after ledger_coa_id changes so opening transactions exist even if TB was confirmed first.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT reference_name FROM trial_balance_entries
+                WHERE status = 'confirmed'::trial_balance_status_enum
+                ORDER BY imported_at DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+            if not row:
+                return
+            ref = (row.get("reference_name") or "").strip()
+            if not ref:
+                return
+            seed_opening_transactions_from_trial_balance(cur, ref)
 
 
 def delete_pending_trial_balance_entries() -> int:
@@ -1603,9 +1762,9 @@ def save_trial_balance_csv_import(
     """
     Persist CSV trial balance preview: upsert COAs, insert trial_balance_entries as confirmed.
     Each row dict expects keys: Full name, COA, Type, Debits, Credits (as in Streamlit df).
-    Optional: bank_account_id (UUID) to attach the line to a registered bank account; otherwise
-    the TB-IMPORT book account is used.
-    After insert, seeds ledger_submissions for opening balances (see seed_ledger_opening_balances_from_trial_balance).
+    Rows use the TB-IMPORT book bank_account_id unless a row dict includes bank_account_id (UUID).
+    After insert, seeds opening transactions for bank accounts with ledger_coa_id (see
+    seed_opening_transactions_from_trial_balance).
     """
     ref = (reference_name or "").strip()[:255]
     if not ref:
@@ -1652,5 +1811,5 @@ def save_trial_balance_csv_import(
                     (row_ba, str(coa_id), ref, deb, crd),
                 )
                 inserted += 1
-            seed_ledger_opening_balances_from_trial_balance(cur)
+            seed_opening_transactions_from_trial_balance(cur, ref)
     return inserted

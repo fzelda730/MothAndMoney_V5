@@ -79,6 +79,34 @@ def _bump_ledger_upload_reset(account_id: str) -> None:
     st.session_state[k] = int(st.session_state.get(k) or 0) + 1
 
 
+def _ledger_preview_editor_key(account_id: str) -> str:
+    return f"ledger_preview_editor_{account_id}"
+
+
+def _included_mask_from_preview_editor(account_id: str, n_rows: int) -> List[bool]:
+    """One bool per preview row: True = include in totals and commit. Defaults all True."""
+    if n_rows <= 0:
+        return []
+    key = _ledger_preview_editor_key(account_id)
+    val = st.session_state.get(key)
+    if val is None:
+        return [True] * n_rows
+    try:
+        df = pd.DataFrame(val) if isinstance(val, dict) else val
+        if not hasattr(df, "iloc") or len(df) != n_rows or "Include" not in df.columns:
+            return [True] * n_rows
+        out: List[bool] = []
+        for i in range(n_rows):
+            v = df.iloc[i]["Include"]
+            if pd.isna(v):
+                out.append(True)
+            else:
+                out.append(bool(v))
+        return out
+    except (TypeError, ValueError, KeyError, IndexError):
+        return [True] * n_rows
+
+
 st.html("""
 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
     <span class="material-symbols-outlined" style="font-size:0.9rem;color:#636262;">
@@ -100,12 +128,13 @@ if pv and pv.get("aid") != aid:
     pv = None
 
 s = ledger_summary(aid)
-ledger_txns = ledger_transactions(aid)
 
 preview_rows = (pv or {}).get("rows") if pv else None
 if preview_rows:
-    import_deb = sum(float(r.get("debit_amount") or 0) for r in preview_rows)
-    import_crd = sum(float(r.get("credit_amount") or 0) for r in preview_rows)
+    _inc = _included_mask_from_preview_editor(aid, len(preview_rows))
+    _rows_for_bar = [r for r, ok in zip(preview_rows, _inc) if ok]
+    import_deb = sum(float(r.get("debit_amount") or 0) for r in _rows_for_bar)
+    import_crd = sum(float(r.get("credit_amount") or 0) for r in _rows_for_bar)
     # Start-of-period for this file = current book balance (submission opening ± posted txns),
     # not the stale ledger-submission baseline alone (that would repeat month 1’s opening).
     beg = float(s["ending_balance"])
@@ -157,7 +186,7 @@ if preview_rows:
     st.caption(
         "**Beginning balance** is your **current** balance after all **posted** transactions (the right "
         "starting point for the next statement). **Debits**, **credits**, and **ending** apply only to "
-        "this file preview. Commit to post these rows."
+        "rows with **Include** checked in the preview. Uncheck lines that belong to another period, then commit."
     )
 else:
     st.caption(
@@ -166,6 +195,12 @@ else:
         "shows that carry-forward plus **this file’s** debits, credits, and projected ending. "
         "Chart-of-accounts numbers apply per **transaction** in the table below."
     )
+    if not use_sample_data() and abs(float(s.get("ending_balance") or 0)) < 0.01:
+        st.caption(
+            "If this stays **$0.00** after you confirmed Trial Balance, open **Bank & card accounts**, "
+            "set **Ledger COA** to the chart line that matches this register in the TB (same account "
+            "number), then **Save ledger COA**—that applies the opening balance to the Ledger."
+        )
 
 st.html("<div style='height:1.5rem'></div>")
 
@@ -416,8 +451,9 @@ pv = st.session_state.get("ledger_import_preview")
 if pv and pv.get("aid") == aid and pv.get("rows"):
     st.markdown("##### Import preview")
     st.caption(
+        "Uncheck **Include** to drop a line from this import (e.g. wrong statement period). "
         "Edit **Description** if needed. Chart account defaults use payee rules for this account. "
-        "**Every row must have a chart account** (no “Skip”) before you can commit."
+        "**Every included row must have a chart account** (no “Skip”) before you can commit."
     )
     coa_rows = chart_of_accounts()
     coa_labels: List[str] = [COA_SKIP_LABEL]
@@ -446,6 +482,7 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
         crd = float(r.get("credit_amount") or 0)
         data.append(
             {
+                "Include": True,
                 "Date": date_s,
                 "Payee": r.get("payee") or "",
                 "Description": (r.get("description") or "") or "",
@@ -459,6 +496,7 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
     edited = st.data_editor(
         preview_df,
         column_config={
+            "Include": st.column_config.CheckboxColumn("Include", help="Uncheck to omit this line from import", default=True),
             "Date": st.column_config.TextColumn("Date"),
             "Payee": st.column_config.TextColumn("Payee", width="large"),
             "Description": st.column_config.TextColumn("Description", width="medium"),
@@ -493,7 +531,13 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
             st.error("Could not read edited table; try processing the file again.")
         else:
             out_rows: list[dict] = []
+            missing_rows: list[int] = []
             for i, base in enumerate(rows_in):
+                inc_val = edited.iloc[i].get("Include", True)
+                if pd.isna(inc_val):
+                    inc_val = True
+                if not bool(inc_val):
+                    continue
                 lbl = edited.iloc[i]["Chart account"]
                 new_coa = label_to_id.get(lbl)
                 desc_edit = edited.iloc[i].get("Description")
@@ -504,47 +548,50 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
                     "description": desc_s or None,
                 }
                 out_rows.append(row_out)
-            missing_rows = [
-                i + 1
-                for i, r in enumerate(out_rows)
-                if not (r.get("coa_id") or "").strip()
-            ]
-            if missing_rows:
-                shown = ", ".join(str(n) for n in missing_rows[:30])
-                more = (
-                    f" (+{len(missing_rows) - 30} more)"
-                    if len(missing_rows) > 30
-                    else ""
-                )
+                if not (new_coa or "").strip():
+                    missing_rows.append(i + 1)
+            if not out_rows:
                 st.error(
-                    "Assign a **chart account** (Acct #) to every line before importing. "
-                    f"Still missing on row(s): **{shown}**{more}."
+                    "No rows are **included** for import. Check **Include** for at least one line, "
+                    "or use **Discard preview**."
                 )
             else:
-                with st.spinner("Saving…"):
-                    n, cerr = commit_ledger_csv_import(
-                        aid,
-                        pv["template_id"],
-                        pv["filename"],
-                        pv["start"],
-                        pv["end"],
-                        out_rows,
+                if missing_rows:
+                    shown = ", ".join(str(n) for n in missing_rows[:30])
+                    more = (
+                        f" (+{len(missing_rows) - 30} more)"
+                        if len(missing_rows) > 30
+                        else ""
                     )
-                if cerr:
-                    if "Demo mode" in cerr:
-                        st.warning(cerr)
+                    st.error(
+                        "Assign a **chart account** (Acct #) to every **included** line before importing. "
+                        f"Still missing on row(s): **{shown}**{more}."
+                    )
+                else:
+                    with st.spinner("Saving…"):
+                        n, cerr = commit_ledger_csv_import(
+                            aid,
+                            pv["template_id"],
+                            pv["filename"],
+                            pv["start"],
+                            pv["end"],
+                            out_rows,
+                        )
+                    if cerr:
+                        if "Demo mode" in cerr:
+                            st.warning(cerr)
+                            st.session_state.pop("ledger_import_preview", None)
+                            _bump_ledger_upload_reset(aid)
+                            st.rerun()
+                        else:
+                            st.error(cerr)
+                    else:
+                        st.success(
+                            f"Imported {n} transaction(s). Payee rules updated for assigned rows."
+                        )
                         st.session_state.pop("ledger_import_preview", None)
                         _bump_ledger_upload_reset(aid)
                         st.rerun()
-                    else:
-                        st.error(cerr)
-                else:
-                    st.success(
-                        f"Imported {n} transaction(s). Payee rules updated for assigned rows."
-                    )
-                    st.session_state.pop("ledger_import_preview", None)
-                    _bump_ledger_upload_reset(aid)
-                    st.rerun()
 
     st.html("<div style='height:1.5rem'></div>")
 
@@ -561,6 +608,18 @@ with col_actions:
         st.button("⚙ Filter", key="ledger_filter")
     with col_export:
         st.button("↑ Export", key="ledger_export")
+
+st.caption(
+    "If this account has a **ledger** chart COA set on Bank & card accounts, each import can post two "
+    "lines (classification plus a mirrored leg). Use the checkbox to hide the mirror leg and match "
+    "statement line count."
+)
+hide_mirrored_ledger_leg = st.checkbox(
+    "Hide mirrored ledger leg (classification lines only)",
+    value=True,
+    key=f"ledger_hide_mirror_{aid}",
+)
+ledger_txns = ledger_transactions(aid, classification_only=hide_mirrored_ledger_leg)
 
 st.html("<div style='height:0.75rem'></div>")
 
