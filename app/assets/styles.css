@@ -1019,7 +1019,7 @@ h1, h2, h3, .font-headline {
 
 .mm-balance-bar {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 0;
     margin-bottom: 2rem;
     background: var(--surface-container-lowest);
@@ -1052,6 +1052,11 @@ h1, h2, h3, .font-headline {
 
 .mm-balance-value.ending {
     color: var(--primary);
+}
+
+.mm-balance-value.mm-balance-date {
+    font-size: 1.15rem;
+    letter-spacing: 0.02em;
 }
 
 /* ============================================================

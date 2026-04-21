@@ -1,3 +1,4 @@
+import html
 import streamlit as st
 import sys
 from pathlib import Path
@@ -26,6 +27,28 @@ DASHBOARD_STATS = dashboard_stats()
 BANK_ACCOUNTS = bank_accounts()
 TAX_PROVISION = tax_provision()
 
+
+def _financial_account_label(acct: dict) -> str:
+    """e.g. Relay Bank****4199 — institution plus last digits from masked account number."""
+    bank = (acct.get("bank_name") or "").strip()
+    if not bank:
+        bank = (acct.get("account_name") or "").strip()
+    masked = str(acct.get("masked") or "")
+    digits = "".join(c for c in masked if c.isdigit())
+    if not digits:
+        return bank
+    tail = digits[-4:] if len(digits) >= 4 else digits
+    return f"{bank}****{tail}"
+
+
+def _fmt_last_statement_date(d) -> str:
+    if d is None:
+        return "—"
+    if hasattr(d, "strftime"):
+        return d.strftime("%b %d, %Y")
+    return str(d)
+
+
 # ── Main content ──────────────────────────────────────────────────────────────
 
 # Page titles
@@ -50,16 +73,31 @@ with col_hero:
     liquidity = DASHBOARD_STATS["available_liquidity"]
     commissions = DASHBOARD_STATS["pending_commissions"]
     portfolio = DASHBOARD_STATS["total_portfolio_value"]
+    if trend is None:
+        trend_html = """
+                <span style="color:#636262;font-size:0.8rem;font-weight:600;display:flex;
+                             align-items:center;gap:0.2rem;">
+                    <span class="material-symbols-outlined" style="font-size:0.9rem;">trending_flat</span>
+                    —
+                </span>"""
+    else:
+        _up = trend >= 0.0
+        _icon = "trending_up" if _up else "trending_down"
+        _color = "var(--primary)" if _up else "#71151d"
+        _pct = f"{trend:+.1f}%"
+        trend_html = f"""
+                <span style="color:{_color};font-size:0.8rem;font-weight:700;display:flex;
+                             align-items:center;gap:0.2rem;">
+                    <span class="material-symbols-outlined" style="font-size:0.9rem;">{_icon}</span>
+                    {_pct}
+                </span>"""
     st.html(f"""
     <div class="mm-card" style="position:relative;overflow:hidden;min-height:180px;">
         <div style="position:relative;z-index:1;">
             <span class="mm-stat-label">Total Portfolio Value</span>
             <div style="display:flex;align-items:baseline;gap:1rem;margin-bottom:2rem;">
                 <span class="mm-stat-value">${portfolio:,.0f}</span>
-                <span class="mm-trend-up">
-                    <span class="material-symbols-outlined" style="font-size:0.9rem;">trending_up</span>
-                    {trend}%
-                </span>
+                {trend_html}
             </div>
             <div style="display:flex;gap:2rem;">
                 <div>
@@ -169,10 +207,17 @@ st.html("""
 </div>
 """)
 
+st.caption(
+    "**Last statement date** is the **end date of the last committed import** for that account "
+    "(Ledger ▸ Commit import). **Beginning balance** is the **book balance at the start of that "
+    "statement period** (trial-balance baseline plus activity before the period start). "
+    "Total debits/credits are **all** cleared and pending register activity, not only that period."
+)
+
 # Build table HTML
 rows_html = ""
 for acct in BANK_ACCOUNTS:
-    beg = acct["beginning_balance"]
+    beg = float(acct.get("statement_beginning_balance", acct["beginning_balance"]))
     deb = acct["total_debits"]
     crd = acct["total_credits"]
     end = acct["ending_balance"]
@@ -182,6 +227,7 @@ for acct in BANK_ACCOUNTS:
     crd_str = f'<span class="mm-credit">+${crd:,.2f}</span>' if crd and crd > 0 else \
               f'<span class="mm-muted">${crd:,.2f}</span>'
     end_color = "#154212" if end >= 0 else "#71151d"
+    stmt_s = html.escape(_fmt_last_statement_date(acct.get("last_statement_date")))
 
     rows_html += f"""
     <tr>
@@ -190,9 +236,11 @@ for acct in BANK_ACCOUNTS:
             <div class="mm-account-name">
                 <span class="material-symbols-outlined"
                       style="color:{acct['icon_color']};">{acct['icon']}</span>
-                {acct['account_name']}
+                {html.escape(_financial_account_label(acct))}
             </div>
         </td>
+        <td style="padding:1rem 1.5rem;background:#ffffff;color:#636262;font-size:0.875rem;
+                   font-weight:500;">{stmt_s}</td>
         <td style="padding:1rem 1.5rem;text-align:right;background:#ffffff;
                    color:#636262;font-weight:500;">${beg:,.2f}</td>
         <td style="padding:1rem 1.5rem;text-align:right;background:#ffffff;">{deb_str}</td>
@@ -202,7 +250,7 @@ for acct in BANK_ACCOUNTS:
             ${end:,.2f}
         </td>
     </tr>
-    <tr><td colspan="5" style="height:0.5rem;background:transparent;"></td></tr>
+    <tr><td colspan="6" style="height:0.5rem;background:transparent;"></td></tr>
     """
 
 st.html(f"""
@@ -211,6 +259,7 @@ st.html(f"""
         <thead>
             <tr>
                 <th style="text-align:left;">Account Name</th>
+                <th style="text-align:left;">Last Statement Date</th>
                 <th>Beginning Balance</th>
                 <th>Total Debits</th>
                 <th>Total Credits</th>

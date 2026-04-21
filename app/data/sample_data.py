@@ -6,13 +6,6 @@ All data is fictional and for UI demonstration only.
 from datetime import date
 
 # ============================================================
-# REPORTS — fiscal window for proration and quarterly bounds
-# ============================================================
-
-REPORTS_FISCAL_YEAR_START = date(2024, 1, 1)
-REPORTS_FISCAL_YEAR_END = date(2024, 12, 31)
-
-# ============================================================
 # STUDIO PROFILE
 # ============================================================
 
@@ -51,6 +44,7 @@ BANK_ACCOUNTS = [
         "total_debits":      -4220.15,
         "total_credits":     12850.50,
         "ending_balance":    37080.35,
+        "last_statement_date": date(2024, 11, 30),
     },
     {
         "id":           "acct-002",
@@ -65,6 +59,7 @@ BANK_ACCOUNTS = [
         "total_debits":      0.00,
         "total_credits":     1500.00,
         "ending_balance":    16500.00,
+        "last_statement_date": date(2024, 10, 31),
     },
     {
         "id":           "acct-003",
@@ -79,6 +74,7 @@ BANK_ACCOUNTS = [
         "total_debits":      -2140.00,
         "total_credits":     1500.00,
         "ending_balance":    -1880.20,
+        "last_statement_date": date(2024, 12, 15),
     },
     {
         "id":           "acct-004",
@@ -93,6 +89,7 @@ BANK_ACCOUNTS = [
         "total_debits":      -85.50,
         "total_credits":     0.00,
         "ending_balance":    364.50,
+        "last_statement_date": None,
     },
 ]
 
@@ -196,6 +193,9 @@ CHART_OF_ACCOUNTS = [
     {"id": "coa-demo-2300", "number": "2300", "name": "Tax Reserve",                   "type": "Liability","subtype": "Current Liability"},
     # Equity
     {"id": "coa-demo-3100", "number": "3100", "name": "Owner Equity",                  "type": "Equity",  "subtype": "Owner's Equity"},
+    {"id": "coa-demo-3110", "number": "3110", "name": "Owners Draw: Personal (legacy)","type": "Equity",  "subtype": "Owner's Equity"},
+    {"id": "coa-demo-3111", "number": "3111", "name": "Owners Draw: Personal – Food",  "type": "Equity",  "subtype": "Owner's Equity"},
+    {"id": "coa-demo-3112", "number": "3112", "name": "Owners Draw: Personal – Animals","type": "Equity", "subtype": "Owner's Equity"},
     {"id": "coa-demo-3200", "number": "3200", "name": "Retained Earnings",             "type": "Equity",  "subtype": "Retained Earnings"},
     # Income
     {"id": "coa-demo-4100", "number": "4100", "name": "Gallery Sales (Direct)",        "type": "Income",  "subtype": "Operating Income"},
@@ -306,6 +306,26 @@ SAMPLE_ACCOUNT_DETAIL = [
     {
         "account_number": "5200", "date": date(2024, 5, 12), "payee": "The Canvas Depot",
         "memo": "Silk bolts", "debit": 2100.00, "credit": None,
+    },
+    {
+        "account_number": "3110", "date": date(2024, 3, 5), "payee": "Card payment",
+        "memo": "Legacy personal catch-all", "debit": 450.00, "credit": None,
+    },
+    {
+        "account_number": "3111", "date": date(2024, 4, 14), "payee": "Farmers Market",
+        "memo": "Groceries", "debit": 86.40, "credit": None,
+    },
+    {
+        "account_number": "3111", "date": date(2024, 6, 2), "payee": "Corner Bistro",
+        "memo": "Dinner", "debit": 124.00, "credit": None,
+    },
+    {
+        "account_number": "3112", "date": date(2024, 4, 22), "payee": "Vet Clinic",
+        "memo": "Annual checkup", "debit": 220.00, "credit": None,
+    },
+    {
+        "account_number": "3112", "date": date(2024, 7, 19), "payee": "Pet Supply Co",
+        "memo": "Food & supplies", "debit": 67.50, "credit": None,
     },
     {
         "account_number": "2100", "date": date(2024, 2, 20), "payee": "Vendor statement",

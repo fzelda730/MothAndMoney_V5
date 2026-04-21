@@ -9,28 +9,21 @@ import streamlit as st
 from typing import Any, Optional
 
 import pandas as pd
-import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.sidebar import load_css, render_sidebar
 from components.topbar import render_topbar
-from data.sample_data import (
-    PL_INCOME,
-    PL_EXPENSES,
-    PL_SUMMARY,
-    QUARTERLY_PERFORMANCE,
-    BALANCE_SHEET,
-    REPORTS_FISCAL_YEAR_START,
-    REPORTS_FISCAL_YEAR_END,
-    SAMPLE_ACCOUNT_DETAIL,
-)
+from data.sample_data import SAMPLE_ACCOUNT_DETAIL
 from data.providers import (
+    balance_sheet_report,
     bank_accounts,
     chart_of_accounts,
     db_ready,
     general_ledger_report,
-    trial_balance_report,
+    personal_spending_report,
+    profit_loss_report,
+    trial_balance_gl_report,
 )
 from db.connection import use_sample_data
 
@@ -48,6 +41,12 @@ def _normalize_period(d0, d1):
     if d0 > d1:
         return d1, d0
     return d0, d1
+
+
+def _default_report_period() -> tuple[date, date]:
+    """Jan 1–Dec 31 of the current calendar year (Reports date picker defaults)."""
+    y = date.today().year
+    return date(y, 1, 1), date(y, 12, 31)
 
 
 def _gl_account_type_banner(coatype: str) -> str:
@@ -137,10 +136,181 @@ def _gl_report_to_csv(blocks: list[dict], period_start: date) -> str:
     return buf.getvalue()
 
 
+def _pl_report_csv(data: dict[str, Any]) -> str:
+    """CSV for Profit & Loss snapshot (income and expense sections)."""
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "Section",
+            "Account #",
+            "Account name",
+            "Period debit",
+            "Period credit",
+            "Net (revenue or expense)",
+        ]
+    )
+    for row in data.get("income", []):
+        w.writerow(
+            [
+                "Income",
+                row.get("coa_number") or "",
+                row.get("coa_name") or "",
+                f"{float(row.get('period_debit') or 0):.2f}",
+                f"{float(row.get('period_credit') or 0):.2f}",
+                f"{float(row.get('amount_display') or 0):.2f}",
+            ]
+        )
+    for row in data.get("expenses", []):
+        w.writerow(
+            [
+                "Expense",
+                row.get("coa_number") or "",
+                row.get("coa_name") or "",
+                f"{float(row.get('period_debit') or 0):.2f}",
+                f"{float(row.get('period_credit') or 0):.2f}",
+                f"{float(row.get('amount_display') or 0):.2f}",
+            ]
+        )
+    tot = data.get("totals") or {}
+    w.writerow(
+        [
+            "Totals",
+            "",
+            "Total income",
+            "",
+            "",
+            f"{float(tot.get('total_income') or 0):.2f}",
+        ]
+    )
+    w.writerow(
+        [
+            "",
+            "",
+            "Total expenses",
+            "",
+            "",
+            f"{float(tot.get('total_expenses') or 0):.2f}",
+        ]
+    )
+    w.writerow(
+        [
+            "",
+            "",
+            "Net income",
+            "",
+            "",
+            f"{float(tot.get('net_income') or 0):.2f}",
+        ]
+    )
+    return buf.getvalue()
+
+
+def _tb_report_csv(data: dict[str, Any]) -> str:
+    """CSV for GL-based trial balance snapshot."""
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Account #", "Account name", "Type", "Debit", "Credit"])
+    for r in data.get("rows", []):
+        w.writerow(
+            [
+                r.get("coa_number") or "",
+                r.get("coa_name") or "",
+                r.get("coa_type") or "",
+                f"{float(r.get('debits') or 0):.2f}",
+                f"{float(r.get('credits') or 0):.2f}",
+            ]
+        )
+    tot = data.get("totals") or {}
+    w.writerow(
+        [
+            "",
+            "",
+            "Totals",
+            f"{float(tot.get('total_debits') or 0):.2f}",
+            f"{float(tot.get('total_credits') or 0):.2f}",
+        ]
+    )
+    w.writerow(
+        [
+            "",
+            "",
+            "Variance (debits − credits)",
+            f"{float(tot.get('variance') or 0):.2f}",
+            "",
+        ]
+    )
+    return buf.getvalue()
+
+
+def _personal_spending_summary_csv(data: dict[str, Any]) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Account #", "Account name", "Net (debit − credit)", "Percent of total"])
+    gt = float(data.get("grand_total") or 0)
+    for row in data.get("categories", []):
+        w.writerow(
+            [
+                row.get("coa_number") or "",
+                row.get("coa_name") or "",
+                f"{float(row.get('net') or 0):.2f}",
+                f"{float(row.get('pct') or 0):.2f}%",
+            ]
+        )
+    w.writerow(["", "Total", f"{gt:.2f}", "100.00%" if abs(gt) > 1e-9 else "—"])
+    return buf.getvalue()
+
+
+def _personal_spending_detail_csv(data: dict[str, Any]) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "Date",
+            "Account #",
+            "Account name",
+            "Payee",
+            "Description",
+            "Debit",
+            "Credit",
+            "Net",
+        ]
+    )
+    for row in data.get("detail", []):
+        deb = row.get("debit")
+        crd = row.get("credit")
+        w.writerow(
+            [
+                str(row.get("date") or "")[:10],
+                row.get("coa_number") or "",
+                row.get("coa_name") or "",
+                row.get("payee") or "",
+                row.get("description") or "",
+                f"{float(deb):.2f}" if deb else "",
+                f"{float(crd):.2f}" if crd else "",
+                f"{float(row.get('net') or 0):.2f}",
+            ]
+        )
+    return buf.getvalue()
+
+
+def _personal_spending_monthly_csv(data: dict[str, Any]) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Month", "Account #", "Net"])
+    for block in data.get("by_month", []):
+        label = block.get("label") or block.get("month_key") or ""
+        for num, amt in sorted((block.get("by_coa") or {}).items()):
+            w.writerow([label, num, f"{float(amt):.2f}"])
+        w.writerow([label, "— month total —", f"{float(block.get('total') or 0):.2f}"])
+    return buf.getvalue()
+
+
 def reports_proration_factor(period_start, period_end):
-    """Share of FY 2024 overlapping the selected range (for demo P&L scaling)."""
+    """Share of the calendar year of period_start overlapping the selected range (demo P&L scaling)."""
     period_start, period_end = _normalize_period(period_start, period_end)
-    fy_s, fy_e = REPORTS_FISCAL_YEAR_START, REPORTS_FISCAL_YEAR_END
+    y = period_start.year
+    fy_s, fy_e = date(y, 1, 1), date(y, 12, 31)
     fy_days = (fy_e - fy_s).days + 1
     ov_s = max(period_start, fy_s)
     ov_e = min(period_end, fy_e)
@@ -153,15 +323,6 @@ def reports_proration_factor(period_start, period_end):
 def format_period_header(d0, d1):
     d0, d1 = _normalize_period(d0, d1)
     return f"{d0.strftime('%b %d, %Y')} – {d1.strftime('%b %d, %Y')}"
-
-
-def quarterly_rows_for_period(period_start, period_end):
-    out = []
-    for q in QUARTERLY_PERFORMANCE:
-        ps, pe = q["period_start"], q["period_end"]
-        if ps <= period_end and pe >= period_start:
-            out.append(q)
-    return out
 
 
 def scale_amount(x, factor):
@@ -202,6 +363,24 @@ def render_account_drilldown(period_start, period_end, key_prefix, title="Accoun
     )
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+
+def _render_reports_back_to_top() -> None:
+    """Scroll the Reports view to the top. Uses iframe document + scrollIntoView; extend selectors if Streamlit DOM changes."""
+    st.html("""
+<div style="display:flex;justify-content:center;margin-top:2rem;margin-bottom:0.5rem;">
+<button type="button"
+        onclick="(function(){var d=document;var t=d.getElementById('reports-page-top');if(t){t.scrollIntoView({behavior:'smooth',block:'start'});}var q=['[data-testid=&quot;stAppViewContainer&quot;]','[data-testid=&quot;stMain&quot;]','section.main','.main'];for(var i=0;i&lt;q.length;i++){var e=d.querySelector(q[i]);if(e){try{e.scrollTo({top:0,behavior:'smooth'});}catch(x){e.scrollTop=0;}break;}}var se=d.scrollingElement;if(se){try{se.scrollTo({top:0,behavior:'smooth'});}catch(x){se.scrollTop=0;}}try{d.documentElement.scrollTo({top:0,behavior:'smooth'});}catch(x){}try{window.scrollTo({top:0,behavior:'smooth'});}catch(x){}try{if(window.parent!==window){window.parent.scrollTo({top:0,behavior:'smooth'});}}catch(x){}})();"
+        style="font-family:'Manrope',sans-serif;font-size:0.875rem;font-weight:600;
+               color:#154212;background:#ffffff;border:1px solid rgba(21,66,18,0.35);
+               border-radius:0.5rem;padding:0.5rem 1.25rem;cursor:pointer;
+               display:inline-flex;align-items:center;gap:0.35rem;">
+    <span class="material-symbols-outlined" style="font-size:1.1rem;">vertical_align_top</span>
+    Back to top
+</button>
+</div>
+""")
+
+
 st.set_page_config(
     page_title="Reports | Moth and Money",
     page_icon="🌿",
@@ -218,356 +397,526 @@ if not db_ready():
 
 BANK_ACCOUNTS = bank_accounts()
 CHART_OF_ACCOUNTS = chart_of_accounts()
-TRIAL_BALANCE_REPORT = trial_balance_report()
 
+st.html("<div id='reports-page-top'></div>")
 st.html("<div style='height:0.75rem'></div>")
 
 # ── Report tabs ───────────────────────────────────────────────────────────────
-tab_pl, tab_bs, tab_gl, tab_tb = st.tabs([
-    "Profit and Loss", "Balance Sheet", "General Ledger", "Trial Balance"
+tab_pl, tab_bs, tab_gl, tab_tb, tab_personal = st.tabs([
+    "Profit and Loss",
+    "Balance Sheet",
+    "General Ledger",
+    "Trial Balance",
+    "Personal spending",
 ])
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 1: Profit and Loss
+# TAB 1: Profit and Loss (from GL: income & expense COAs, period activity)
 # ────────────────────────────────────────────────────────────────────────────────
 with tab_pl:
-    col_header, col_exports = st.columns([3, 1], gap="large")
-    with col_header:
-        st.html(f"""
-        <p style="color:#154212;font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                  letter-spacing:0.15em;margin-bottom:0.5rem;">Financial Statement</p>
-        <h2 style="font-family:'Manrope',sans-serif;font-size:2.5rem;font-weight:800;
-                   letter-spacing:-0.03em;margin:0 0 0.5rem;">Profit and Loss</h2>
-        <p style="color:#636262;font-style:italic;opacity:0.8;font-size:0.95rem;">
-            {PL_SUMMARY['fiscal_year']}
-        </p>
-        """)
-    with col_exports:
-        st.html("<div style='height:2rem'></div>")
-        col_pdf, col_csv = st.columns(2, gap="small")
-        with col_pdf:
-            st.button("📄 Export PDF", key="pl_pdf")
-        with col_csv:
-            st.button("📊 Export CSV", key="pl_csv", type="primary")
+    if "pl_report_snapshot" not in st.session_state:
+        st.session_state.pl_report_snapshot = None
 
-    st.html("<div style='height:1.5rem'></div>")
+    pl_account_options = ["All Accounts"] + [
+        f"{a['account_name']} ****{a['masked']}"
+        for a in BANK_ACCOUNTS
+        if a["account_type"] != "cash"
+    ]
 
-    col_stats, col_table = st.columns([2, 3], gap="large")
-
-    with col_stats:
-        rev = PL_SUMMARY["gross_revenue"]
-        exp = PL_SUMMARY["operating_expenses"]
-        net = PL_SUMMARY["net_profit"]
-        vs_ly = PL_SUMMARY["revenue_vs_ly"]
-        note = PL_SUMMARY["net_profit_note"]
-
-        st.html(f"""
-        <div class="mm-report-stat-card" style="margin-bottom:1.5rem;">
-            <span class="mm-stat-label">Gross Revenue</span>
-            <div>
-                <div style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:700;
-                            color:#154212;">${rev:,.2f}</div>
-                <div style="font-size:0.75rem;color:#2d5a27;margin-top:0.5rem;
-                             display:flex;align-items:center;gap:0.25rem;">
-                    <span class="material-symbols-outlined" style="font-size:0.875rem;">
-                        trending_up
-                    </span>
-                    +{vs_ly}% vs LY
-                </div>
-            </div>
-        </div>
-
-        <div class="mm-card-low" style="margin-bottom:1.5rem;min-height:12rem;
-                                         display:flex;flex-direction:column;
-                                         justify-content:space-between;">
-            <span class="mm-stat-label">Operating Expenses</span>
-            <div>
-                <div style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:700;">
-                    ${exp:,.2f}
-                </div>
-                <div style="font-size:0.75rem;color:#636262;margin-top:0.5rem;
-                             display:flex;align-items:center;gap:0.25rem;">
-                    <span class="material-symbols-outlined" style="font-size:0.875rem;">remove</span>
-                    On track with budget
-                </div>
-            </div>
-        </div>
-
-        <div class="mm-report-net-card">
-            <div style="position:relative;z-index:1;">
-                <span class="mm-stat-label" style="color:rgba(255,255,255,0.8);">Net Profit</span>
-                <div style="font-family:'Manrope',sans-serif;font-size:2.5rem;font-weight:800;
-                            color:#ffffff;margin-top:1rem;">${net:,.2f}</div>
-            </div>
-            <div style="background:rgba(45,90,39,0.4);backdrop-filter:blur(8px);
-                        border-radius:0.5rem;padding:1rem;position:relative;z-index:1;">
-                <p style="font-size:0.75rem;font-style:italic;opacity:0.9;color:#ffffff;
-                           margin:0;">"{note}"</p>
-            </div>
-            <div style="position:absolute;right:-3rem;bottom:-3rem;width:12rem;height:12rem;
-                        background:rgba(161,212,148,0.15);border-radius:50%;
-                        filter:blur(40px);"></div>
-        </div>
-        """)
-
-    with col_table:
-        # Income table
-        st.html("""
-        <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1.1rem;
-                   margin-bottom:1.5rem;">Income Details</h4>
-        """)
-
-        income_rows = ""
-        for row in PL_INCOME:
-            deb_str = f"${row['debit']:,.2f}" if row["debit"] else "—"
-            crd_str = f"${row['credit']:,.2f}" if row["credit"] else "—"
-            income_rows += f"""
-            <tr>
-                <td style="padding:1.25rem 0;border-bottom:1px solid rgba(194,201,187,0.1);
-                           font-weight:500;">{row['account']}</td>
-                <td style="padding:1.25rem 0;text-align:right;color:#636262;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">{deb_str}</td>
-                <td style="padding:1.25rem 0;text-align:right;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">{crd_str}</td>
-                <td style="padding:1.25rem 0;text-align:right;font-weight:600;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">
-                    ${row['total']:,.2f}
-                </td>
-            </tr>"""
-
-        total_income = sum(r["total"] for r in PL_INCOME)
-        income_rows += f"""
-        <tr style="background:rgba(238,238,238,0.3);">
-            <td style="padding:1.5rem 0;font-weight:700;">Total Operating Income</td>
-            <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
-            <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
-            <td style="padding:1.5rem 0;text-align:right;font-weight:700;color:#154212;">
-                ${total_income:,.2f}
-            </td>
-        </tr>"""
-
-        st.html(f"""
-        <div class="mm-report-table">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="text-align:left;">Account Name</th>
-                        <th>Debit</th>
-                        <th>Credit</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>{income_rows}</tbody>
-            </table>
-        """)
-
-        # Expense table
-        st.html("""
-        <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1.1rem;
-                   margin:3rem 0 1.5rem;">Expense Details</h4>
-        """)
-
-        expense_rows = ""
-        for row in PL_EXPENSES:
-            deb_str = f"${row['debit']:,.2f}" if row["debit"] else "—"
-            expense_rows += f"""
-            <tr>
-                <td style="padding:1.25rem 0;border-bottom:1px solid rgba(194,201,187,0.1);
-                           font-weight:500;">{row['account']}</td>
-                <td style="padding:1.25rem 0;text-align:right;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">{deb_str}</td>
-                <td style="padding:1.25rem 0;text-align:right;color:#636262;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">—</td>
-                <td style="padding:1.25rem 0;text-align:right;font-weight:600;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">
-                    ${row['total']:,.2f}
-                </td>
-            </tr>"""
-
-        total_expenses = sum(r["total"] for r in PL_EXPENSES)
-        expense_rows += f"""
-        <tr style="background:rgba(238,238,238,0.3);">
-            <td style="padding:1.5rem 0;font-weight:700;">Total Operating Expenses</td>
-            <td style="padding:1.5rem 0;text-align:right;font-weight:700;">
-                ${total_expenses:,.2f}
-            </td>
-            <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
-            <td style="padding:1.5rem 0;text-align:right;font-weight:700;">
-                ${total_expenses:,.2f}
-            </td>
-        </tr>"""
-
-        st.html(f"""
-            <table>
-                <tbody>{expense_rows}</tbody>
-            </table>
-
-            <div style="margin-top:3rem;padding-top:1.5rem;
-                        border-top:1px solid rgba(194,201,187,0.2);
-                        display:flex;justify-content:space-between;align-items:flex-end;">
-                <div>
-                    <p style="font-size:0.6rem;font-weight:700;text-transform:uppercase;
-                               letter-spacing:0.15em;color:#636262;margin-bottom:0.25rem;">
-                        Generated On
-                    </p>
-                    <p style="font-size:0.8rem;font-weight:500;">{PL_SUMMARY['generated_on']}</p>
-                </div>
-                <div style="text-align:right;">
-                    <p style="font-size:0.6rem;font-weight:700;text-transform:uppercase;
-                               letter-spacing:0.15em;color:#636262;margin-bottom:0.25rem;">
-                        Net Ordinary Income
-                    </p>
-                    <p style="font-family:'Manrope',sans-serif;font-size:1.5rem;font-weight:700;
-                               color:#154212;">${PL_SUMMARY['net_profit']:,.2f}</p>
-                </div>
-            </div>
-        </div>
-        """)
-
-    st.html("<div style='height:3rem'></div>")
-
-    # ── Quarterly Performance chart ───────────────────────────────────────────
     st.html("""
-    <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1.4rem;
-               margin-bottom:1.5rem;">Quarterly Performance</h4>
+    <p style="color:#154212;font-size:0.65rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:0.15em;margin-bottom:0.5rem;">Financial Statement</p>
+    <h2 style="font-family:'Manrope',sans-serif;font-size:2.5rem;font-weight:800;
+               letter-spacing:-0.03em;margin:0 0 0.5rem;">Profit and Loss</h2>
+    <p style="color:#636262;font-style:italic;margin-bottom:1rem;">
+        Period activity from the General Ledger: revenue (credit − debit) and expenses (debit − credit)
+        for each income and expense chart account.
+    </p>
     """)
 
-    quarters = [q["quarter"] for q in QUARTERLY_PERFORMANCE]
-    revenues  = [q["revenue"]  for q in QUARTERLY_PERFORMANCE]
-    projected = [q["projected"] for q in QUARTERLY_PERFORMANCE]
+    with st.form("pl_report_form"):
+        pl_def_s, pl_def_e = _default_report_period()
+        pf1, pf2, pf3, pf4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
+        with pf1:
+            pl_d0 = st.date_input(
+                "FROM DATE",
+                value=pl_def_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="pl_form_start",
+            )
+        with pf2:
+            pl_d1 = st.date_input(
+                "TO DATE",
+                value=pl_def_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="pl_form_end",
+            )
+        with pf3:
+            pl_bank_pick = st.selectbox(
+                "ACCOUNT FILTER",
+                options=pl_account_options,
+                key="pl_form_bank",
+            )
+        with pf4:
+            st.html("<div style='height:0.25rem'></div>")
+            pl_submit = st.form_submit_button(
+                "GENERATE REPORT", type="primary", use_container_width=True
+            )
 
-    colors = ["#a1d494" if not p else "#c2c9bb" for p in projected]
+    if use_sample_data():
+        st.info(
+            "Demo mode uses sample transactions dated **2024**. Pick a 2024 range or set "
+            "**USE_SAMPLE_DATA=false** for PostgreSQL."
+        )
 
-    fig = go.Figure(go.Bar(
-        x=quarters,
-        y=revenues,
-        marker_color=colors,
-        text=[f"${r:,.0f}" for r in revenues],
-        textposition="outside",
-        textfont=dict(family="Inter", size=12, color="#1a1c1c"),
-    ))
+    if pl_submit:
+        pl_start, pl_end = _normalize_period(pl_d0, pl_d1)
+        pl_bid = _bank_id_for_report_label(pl_bank_pick, BANK_ACCOUNTS)
+        snap = profit_loss_report(pl_start, pl_end, pl_bid)
+        st.session_state.pl_report_snapshot = {
+            "data": snap,
+            "period_start": pl_start,
+            "period_end": pl_end,
+            "bank_label": pl_bank_pick,
+        }
 
-    fig.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=10, b=0),
-        height=220,
-        font=dict(family="Inter"),
-        xaxis=dict(
-            showgrid=False,
-            tickfont=dict(size=11, color="#636262"),
-            linecolor="rgba(194,201,187,0.2)",
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(194,201,187,0.15)",
-            tickformat="$,.0f",
-            tickfont=dict(size=10, color="#636262"),
-            zeroline=False,
-        ),
-        bargap=0.4,
-        showlegend=False,
+    pl_snap = st.session_state.pl_report_snapshot
+
+    rev = exp = net = 0.0
+    if pl_snap:
+        tot = pl_snap["data"]["totals"]
+        rev = float(tot["total_income"])
+        exp = float(tot["total_expenses"])
+        net = float(tot["net_income"])
+
+    net_label = "Net Profit" if net >= 0 else "Net Loss"
+    net_note = (
+        "Income and expense accounts only; asset/liability/equity use Balance Sheet."
+        if pl_snap
+        else "Generate a report to see totals."
     )
 
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    if not CHART_OF_ACCOUNTS:
+        st.info(
+            "No chart of accounts yet. Complete onboarding or add accounts under **New entry**."
+        )
+    elif pl_snap is None:
+        st.caption(
+            "Choose **from** and **to** dates and account scope, then click **GENERATE REPORT**. "
+            "Amounts are period activity (not point-in-time balances)."
+        )
+    else:
+        ps, pe = pl_snap["period_start"], pl_snap["period_end"]
+        ph = html.escape(format_period_header(ps, pe))
+        bl = html.escape(str(pl_snap["bank_label"]))
+        gen_on = html.escape(date.today().strftime("%b %d, %Y"))
+
+        col_dl, col_spacer = st.columns([1, 4])
+        with col_dl:
+            csv_bytes = _pl_report_csv(pl_snap["data"])
+            st.download_button(
+                label="Download CSV",
+                data=csv_bytes,
+                file_name="profit_and_loss_report.csv",
+                mime="text/csv",
+                key="pl_download_csv",
+                type="primary",
+                use_container_width=True,
+            )
+
+        st.markdown(f"**Period:** {ph}  \n**Bank scope:** {bl}")
+
+        st.caption(
+            "Per-account **Debit** and **Credit** are totals for the period only. "
+            "**Net** for income is credit − debit; for expenses, debit − credit."
+        )
+
+        col_stats, col_table = st.columns([2, 3], gap="large")
+
+        with col_stats:
+            net_bg = (
+                "linear-gradient(135deg,#2d5a27 0%,#154212 100%)"
+                if net >= 0
+                else "linear-gradient(135deg,#5c2a2a 0%,#71151d 100%)"
+            )
+            st.html(f"""
+            <div class="mm-report-stat-card" style="margin-bottom:1.5rem;">
+                <span class="mm-stat-label">Total Revenue</span>
+                <div>
+                    <div style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:700;
+                                color:#154212;">${rev:,.2f}</div>
+                </div>
+            </div>
+            <div class="mm-card-low" style="margin-bottom:1.5rem;min-height:8rem;
+                                             display:flex;flex-direction:column;
+                                             justify-content:space-between;">
+                <span class="mm-stat-label">Total Expenses</span>
+                <div>
+                    <div style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:700;">
+                        ${exp:,.2f}</div>
+                </div>
+            </div>
+            <div class="mm-report-net-card" style="background:{net_bg};">
+                <div style="position:relative;z-index:1;">
+                    <span class="mm-stat-label" style="color:rgba(255,255,255,0.85);">
+                        {html.escape(net_label)}</span>
+                    <div style="font-family:'Manrope',sans-serif;font-size:2.5rem;font-weight:800;
+                                color:#ffffff;margin-top:1rem;">${abs(net):,.2f}</div>
+                </div>
+                <div style="background:rgba(0,0,0,0.15);backdrop-filter:blur(8px);
+                            border-radius:0.5rem;padding:1rem;position:relative;z-index:1;">
+                    <p style="font-size:0.75rem;font-style:italic;opacity:0.95;color:#ffffff;
+                               margin:0;">{html.escape(net_note)}</p>
+                </div>
+                <div style="position:absolute;right:-3rem;bottom:-3rem;width:12rem;height:12rem;
+                            background:rgba(255,255,255,0.08);border-radius:50%;
+                            filter:blur(40px);"></div>
+            </div>
+            """)
+
+        def _pl_row_html(r: dict) -> str:
+            num = html.escape(str(r.get("coa_number") or ""))
+            name = html.escape(str(r.get("coa_name") or ""))
+            label = f"{num} — {name}" if num else name
+            pd = float(r.get("period_debit") or 0)
+            pc = float(r.get("period_credit") or 0)
+            am = float(r.get("amount_display") or 0)
+            ds = f"${pd:,.2f}" if abs(pd) > 1e-9 else "—"
+            cs = f"${pc:,.2f}" if abs(pc) > 1e-9 else "—"
+            return f"""
+                <tr>
+                    <td style="padding:1.25rem 0;border-bottom:1px solid rgba(194,201,187,0.1);
+                               font-weight:500;">{label}</td>
+                    <td style="padding:1.25rem 0;text-align:right;color:#636262;
+                               border-bottom:1px solid rgba(194,201,187,0.1);">{ds}</td>
+                    <td style="padding:1.25rem 0;text-align:right;
+                               border-bottom:1px solid rgba(194,201,187,0.1);">{cs}</td>
+                    <td style="padding:1.25rem 0;text-align:right;font-weight:600;
+                               border-bottom:1px solid rgba(194,201,187,0.1);">
+                        ${am:,.2f}</td>
+                </tr>"""
+
+        with col_table:
+            pdata = pl_snap["data"]
+            income_rows = pdata["income"]
+            expense_rows = pdata["expenses"]
+            total_income = float(pdata["totals"]["total_income"])
+            total_expenses = float(pdata["totals"]["total_expenses"])
+
+            inc_html = "".join(_pl_row_html(r) for r in income_rows)
+            inc_html += f"""
+            <tr style="background:rgba(238,238,238,0.3);">
+                <td style="padding:1.5rem 0;font-weight:700;">Total Revenue</td>
+                <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
+                <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
+                <td style="padding:1.5rem 0;text-align:right;font-weight:700;color:#154212;">
+                    ${total_income:,.2f}</td>
+            </tr>"""
+
+            st.html(f"""
+            <div class="mm-report-table">
+                <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1.1rem;
+                           margin-bottom:1.5rem;">Income</h4>
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">ACCOUNT</th>
+                            <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">DEBIT</th>
+                            <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">CREDIT</th>
+                            <th style="text-align:right;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">NET</th>
+                        </tr>
+                    </thead>
+                    <tbody>{inc_html}</tbody>
+                </table>
+            </div>
+            """)
+
+            exp_html = "".join(_pl_row_html(r) for r in expense_rows)
+            exp_html += f"""
+            <tr style="background:rgba(238,238,238,0.3);">
+                <td style="padding:1.5rem 0;font-weight:700;">Total Expenses</td>
+                <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
+                <td style="padding:1.5rem 0;text-align:right;color:#636262;">—</td>
+                <td style="padding:1.5rem 0;text-align:right;font-weight:700;">
+                    ${total_expenses:,.2f}</td>
+            </tr>"""
+
+            st.html(f"""
+            <div class="mm-report-table" style="margin-top:2.5rem;">
+                <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1.1rem;
+                           margin-bottom:1.5rem;">Expenses</h4>
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">ACCOUNT</th>
+                            <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">DEBIT</th>
+                            <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">CREDIT</th>
+                            <th style="text-align:right;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                       letter-spacing:0.1em;color:#636262;">NET</th>
+                        </tr>
+                    </thead>
+                    <tbody>{exp_html}</tbody>
+                </table>
+            </div>
+            """)
+
+            net_ord = net
+            net_color2 = "#154212" if net_ord >= 0 else "#71151d"
+            st.html(f"""
+            <div class="mm-report-table" style="margin-top:2.5rem;">
+                <div style="margin-top:1rem;padding-top:1.5rem;
+                            border-top:1px solid rgba(194,201,187,0.2);
+                            display:flex;justify-content:space-between;align-items:flex-end;">
+                    <div>
+                        <p style="font-size:0.6rem;font-weight:700;text-transform:uppercase;
+                                   letter-spacing:0.15em;color:#636262;margin-bottom:0.25rem;">
+                            Generated</p>
+                        <p style="font-size:0.8rem;font-weight:500;">{gen_on}</p>
+                    </div>
+                    <div style="text-align:right;">
+                        <p style="font-size:0.6rem;font-weight:700;text-transform:uppercase;
+                                   letter-spacing:0.15em;color:#636262;margin-bottom:0.25rem;">
+                            Net Ordinary Income</p>
+                        <p style="font-family:'Manrope',sans-serif;font-size:1.5rem;font-weight:700;
+                                   color:{net_color2};">${net_ord:,.2f}</p>
+                    </div>
+                </div>
+            </div>
+            """)
+
+            if not income_rows and not expense_rows:
+                st.info(
+                    "No income or expense accounts with activity in this range. "
+                    "Try a wider period or **All Accounts**."
+                )
+
+    st.html("<div style='height:2rem'></div>")
+    _render_reports_back_to_top()
+
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 2: Balance Sheet (simplified cash-basis)
+# TAB 2: Balance Sheet (from GL / chart: asset, liability, equity)
 # ────────────────────────────────────────────────────────────────────────────────
 with tab_bs:
+    if "bs_report_snapshot" not in st.session_state:
+        st.session_state.bs_report_snapshot = None
+
     st.html("""
     <div style="display:inline-flex;align-items:center;gap:0.5rem;background:#bcf0ae;
                 color:#154212;font-size:0.65rem;font-weight:700;padding:0.25rem 0.75rem;
                 border-radius:0.75rem;margin-bottom:1.5rem;">
         <span class="material-symbols-outlined" style="font-size:0.875rem;">info</span>
-        Simplified Cash-Basis View
+        Chart accounts (assets, liabilities, equity)
     </div>
     <h2 style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:800;
                letter-spacing:-0.02em;margin:0 0 0.5rem;">Balance Sheet</h2>
-    <p style="color:#636262;font-style:italic;margin-bottom:2rem;">
-        Cash-basis accounting shows assets and liabilities based on actual cash flows only.
+    <p style="color:#636262;font-style:italic;margin-bottom:1rem;">
+        Same balances as General Ledger: trial balance net for each account plus posted transactions.
+        Income and expense accounts are omitted here (use Profit and Loss).
     </p>
     """)
 
-    col_bs_assets, col_bs_liab = st.columns(2, gap="large")
+    bs_account_options = ["All Accounts"] + [
+        f"{a['account_name']} ****{a['masked']}"
+        for a in BANK_ACCOUNTS
+        if a["account_type"] != "cash"
+    ]
 
-    with col_bs_assets:
-        st.html("""
-        <div class="mm-report-table">
-            <h4 style="font-family:'Manrope',sans-serif;font-weight:700;margin-bottom:1.5rem;">
-                Assets
-            </h4>
-        """)
-        total_assets = sum(a["amount"] for a in BALANCE_SHEET["assets"])
-        asset_rows = ""
-        for a in BALANCE_SHEET["assets"]:
-            asset_rows += f"""
-            <tr>
-                <td style="padding:1rem 0;border-bottom:1px solid rgba(194,201,187,0.1);
-                           font-weight:500;">{a['account']}</td>
-                <td style="padding:1rem 0;text-align:right;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">
-                    ${a['amount']:,.2f}
-                </td>
-            </tr>"""
+    with st.form("bs_report_form"):
+        bs_def_s, bs_def_e = _default_report_period()
+        bf1, bf2, bf3, bf4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
+        with bf1:
+            bs_d0 = st.date_input(
+                "FROM DATE",
+                value=bs_def_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="bs_form_start",
+            )
+        with bf2:
+            bs_d1 = st.date_input(
+                "TO DATE",
+                value=bs_def_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="bs_form_end",
+            )
+        with bf3:
+            bs_bank_pick = st.selectbox(
+                "ACCOUNT FILTER",
+                options=bs_account_options,
+                key="bs_form_bank",
+            )
+        with bf4:
+            st.html("<div style='height:0.25rem'></div>")
+            bs_submit = st.form_submit_button(
+                "GENERATE REPORT", type="primary", use_container_width=True
+            )
+
+    if use_sample_data():
+        st.info(
+            "Demo mode uses sample transactions dated **2024**. Pick a 2024 range or set "
+            "**USE_SAMPLE_DATA=false** for PostgreSQL."
+        )
+
+    if bs_submit:
+        bs_start, bs_end = _normalize_period(bs_d0, bs_d1)
+        bs_bid = _bank_id_for_report_label(bs_bank_pick, BANK_ACCOUNTS)
+        snap = balance_sheet_report(bs_start, bs_end, bs_bid)
+        st.session_state.bs_report_snapshot = {
+            "data": snap,
+            "period_start": bs_start,
+            "period_end": bs_end,
+            "bank_label": bs_bank_pick,
+        }
+
+    bs_snap = st.session_state.bs_report_snapshot
+
+    if not CHART_OF_ACCOUNTS:
+        st.info(
+            "No chart of accounts yet. Complete onboarding or add accounts under **New entry**."
+        )
+    elif bs_snap is None:
+        st.caption(
+            "Choose **from** and **to** dates and account scope, then click **GENERATE REPORT**. "
+            "Beginning and ending match the General Ledger for that range."
+        )
+    else:
+        snap = bs_snap["data"]
+        tot = snap["totals"]
+        ps, pe = bs_snap["period_start"], bs_snap["period_end"]
+        ph = html.escape(format_period_header(ps, pe))
+        bl = html.escape(str(bs_snap["bank_label"]))
+
+        st.markdown(f"**Period:** {ph}  \n**Bank scope:** {bl}")
+
+        st.caption(
+            "Beginning = balance at the start of the range; ending = balance at the end. "
+            "Liabilities and equity show credit balances as positive. "
+            "**Check:** Assets − (Liabilities + Equity) should be near zero when the books tie out."
+        )
+
+        vb, ve = float(tot["variance_beginning"]), float(tot["variance_ending"])
+        if abs(vb) > 0.02 or abs(ve) > 0.02:
+            st.warning(
+                f"Balance sheet check line is **${vb:,.2f}** (beginning) and **${ve:,.2f}** (ending). "
+                "Large differences often mean uncategorized transactions, unclosed P&amp;L, or mixed books."
+            )
+
+        def _bs_section_html(title: str, rows: list, tb: float, te: float) -> str:
+            thead = """
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">ACCOUNT</th>
+                        <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">BEGINNING</th>
+                        <th style="text-align:right;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">ENDING</th>
+                    </tr>
+                </thead>
+            """
+            body = ""
+            for r in rows:
+                num = html.escape(str(r.get("coa_number") or ""))
+                name = html.escape(str(r.get("coa_name") or ""))
+                label = f"{num} — {name}" if num else name
+                b0 = float(r["beginning_display"])
+                b1 = float(r["ending_display"])
+                body += f"""
+                <tr>
+                    <td style="padding:0.65rem 0;border-bottom:1px solid rgba(194,201,187,0.12);
+                               font-weight:500;">{label}</td>
+                    <td style="padding:0.65rem 0.5rem;text-align:right;border-bottom:1px solid rgba(194,201,187,0.12);">
+                        ${b0:,.2f}</td>
+                    <td style="padding:0.65rem 0;text-align:right;border-bottom:1px solid rgba(194,201,187,0.12);">
+                        ${b1:,.2f}</td>
+                </tr>"""
+            tbv = float(tb)
+            tev = float(te)
+            body += f"""
+                <tr>
+                    <td style="padding:0.85rem 0;font-weight:700;">Total {html.escape(title)}</td>
+                    <td style="padding:0.85rem 0.5rem;text-align:right;font-weight:700;color:#154212;">
+                        ${tbv:,.2f}</td>
+                    <td style="padding:0.85rem 0;text-align:right;font-weight:700;color:#154212;">
+                        ${tev:,.2f}</td>
+                </tr>"""
+            return f"""
+            <div class="mm-report-table" style="margin-bottom:1.75rem;">
+                <h4 style="font-family:'Manrope',sans-serif;font-weight:700;margin-bottom:0.75rem;">
+                    {html.escape(title)}
+                </h4>
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+                    {thead}
+                    <tbody>{body}</tbody>
+                </table>
+            </div>
+            """
+
+        assets = snap["assets"]
+        liabilities = snap["liabilities"]
+        equity = snap["equity"]
+        if not assets and not liabilities and not equity:
+            st.info(
+                "No asset, liability, or equity accounts appear in the general ledger for this scope. "
+                "Try **All Accounts** or add chart lines of those types."
+            )
+        else:
+            st.html(
+                _bs_section_html(
+                    "Assets",
+                    assets,
+                    tot["assets_beginning"],
+                    tot["assets_ending"],
+                )
+            )
+            st.html(
+                _bs_section_html(
+                    "Liabilities",
+                    liabilities,
+                    tot["liabilities_beginning"],
+                    tot["liabilities_ending"],
+                )
+            )
+            st.html(
+                _bs_section_html(
+                    "Equity",
+                    equity,
+                    tot["equity_beginning"],
+                    tot["equity_ending"],
+                )
+            )
+
         st.html(f"""
+        <div class="mm-report-table" style="margin-top:0.5rem;padding-top:1rem;
+                    border-top:2px solid rgba(194,201,187,0.35);">
             <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
                 <tbody>
-                    {asset_rows}
                     <tr>
-                        <td style="padding:1.25rem 0;font-weight:700;">Total Assets</td>
-                        <td style="padding:1.25rem 0;text-align:right;font-weight:700;
-                                   color:#154212;">${total_assets:,.2f}</td>
+                        <td style="padding:0.5rem 0;font-weight:700;">
+                            Check: Assets − (Liabilities + Equity)</td>
+                        <td style="padding:0.5rem 0.5rem;text-align:right;font-weight:700;color:#636262;">
+                            ${vb:,.2f}</td>
+                        <td style="padding:0.5rem 0;text-align:right;font-weight:700;color:#636262;">
+                            ${ve:,.2f}</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         """)
 
-    with col_bs_liab:
-        st.html("""
-        <div class="mm-report-table">
-            <h4 style="font-family:'Manrope',sans-serif;font-weight:700;margin-bottom:1.5rem;">
-                Liabilities
-            </h4>
-        """)
-        total_liab = sum(l["amount"] for l in BALANCE_SHEET["liabilities"])
-        liab_rows = ""
-        for l in BALANCE_SHEET["liabilities"]:
-            liab_rows += f"""
-            <tr>
-                <td style="padding:1rem 0;border-bottom:1px solid rgba(194,201,187,0.1);
-                           font-weight:500;">{l['account']}</td>
-                <td style="padding:1rem 0;text-align:right;
-                           border-bottom:1px solid rgba(194,201,187,0.1);">
-                    ${l['amount']:,.2f}
-                </td>
-            </tr>"""
-        net_position = total_assets - total_liab
-        st.html(f"""
-            <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
-                <tbody>
-                    {liab_rows}
-                    <tr>
-                        <td style="padding:1.25rem 0;font-weight:700;">Total Liabilities</td>
-                        <td style="padding:1.25rem 0;text-align:right;font-weight:700;
-                                   color:#71151d;">${total_liab:,.2f}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding:1.25rem 0;font-weight:700;
-                                   border-top:2px solid rgba(194,201,187,0.3);">
-                            Net Position (Assets – Liabilities)
-                        </td>
-                        <td style="padding:1.25rem 0;text-align:right;font-weight:700;
-                                   color:#154212;font-size:1.1rem;
-                                   border-top:2px solid rgba(194,201,187,0.3);">
-                            ${net_position:,.2f}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        """)
+    _render_reports_back_to_top()
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # TAB 3: General Ledger (layout per GLReport_screen.png; uses app sidebar, not mock sidebar)
@@ -612,11 +961,12 @@ with tab_gl:
     ]
 
     with st.form("gl_report_form"):
+        gl_def_s, gl_def_e = _default_report_period()
         f1, f2, f3, f4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
         with f1:
             gl_d0 = st.date_input(
                 "START DATE",
-                value=REPORTS_FISCAL_YEAR_START,
+                value=gl_def_s,
                 min_value=date(2020, 1, 1),
                 max_value=date(2035, 12, 31),
                 key="gl_form_start",
@@ -624,7 +974,7 @@ with tab_gl:
         with f2:
             gl_d1 = st.date_input(
                 "END DATE",
-                value=REPORTS_FISCAL_YEAR_END,
+                value=gl_def_e,
                 min_value=date(2020, 1, 1),
                 max_value=date(2035, 12, 31),
                 key="gl_form_end",
@@ -824,37 +1174,142 @@ with tab_gl:
             </div>
             """)
 
+    _render_reports_back_to_top()
+
+
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 4: Trial Balance
+# TAB 4: Trial Balance (GL ending balances for range, Debit/Credit columns)
 # ────────────────────────────────────────────────────────────────────────────────
 with tab_tb:
+    if "tb_report_snapshot" not in st.session_state:
+        st.session_state.tb_report_snapshot = None
+
+    tb_account_options = ["All Accounts"] + [
+        f"{a['account_name']} ****{a['masked']}"
+        for a in BANK_ACCOUNTS
+        if a["account_type"] != "cash"
+    ]
+
     st.html("""
     <h2 style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:800;
                letter-spacing:-0.02em;margin:0 0 0.5rem;">Trial Balance</h2>
-    <p style="color:#636262;margin-bottom:2rem;">
-        Opening balances as established during onboarding.
+    <p style="color:#636262;margin-bottom:1rem;">
+        Ending balance per chart account for the selected range (same as General Ledger).
+        Net debit balance appears in <strong>Debits</strong>; net credit in <strong>Credits</strong>.
+        Totals should match when the books balance.
     </p>
     """)
 
-    tb_rows = ""
-    total_deb = 0
-    total_crd = 0
-    for row in TRIAL_BALANCE_REPORT:
-        deb_str = f"${row['debits']:,.2f}" if row["debits"] else "—"
-        crd_str = f"${row['credits']:,.2f}" if row["credits"] else "—"
-        if row["debits"]:
-            total_deb += row["debits"]
-        if row["credits"]:
-            total_crd += row["credits"]
-        tb_rows += f"""
+    with st.form("tb_report_form"):
+        tb_def_s, tb_def_e = _default_report_period()
+        tf1, tf2, tf3, tf4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
+        with tf1:
+            tb_d0 = st.date_input(
+                "FROM DATE",
+                value=tb_def_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="tb_form_start",
+            )
+        with tf2:
+            tb_d1 = st.date_input(
+                "TO DATE",
+                value=tb_def_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="tb_form_end",
+            )
+        with tf3:
+            tb_bank_pick = st.selectbox(
+                "ACCOUNT FILTER",
+                options=tb_account_options,
+                key="tb_form_bank",
+            )
+        with tf4:
+            st.html("<div style='height:0.25rem'></div>")
+            tb_submit = st.form_submit_button(
+                "GENERATE REPORT", type="primary", use_container_width=True
+            )
+
+    if use_sample_data():
+        st.info(
+            "Demo mode uses sample transactions dated **2024**. Pick a 2024 range or set "
+            "**USE_SAMPLE_DATA=false** for PostgreSQL."
+        )
+
+    if tb_submit:
+        tb_start, tb_end = _normalize_period(tb_d0, tb_d1)
+        tb_bid = _bank_id_for_report_label(tb_bank_pick, BANK_ACCOUNTS)
+        snap = trial_balance_gl_report(tb_start, tb_end, tb_bid)
+        st.session_state.tb_report_snapshot = {
+            "data": snap,
+            "period_start": tb_start,
+            "period_end": tb_end,
+            "bank_label": tb_bank_pick,
+        }
+
+    tb_snap = st.session_state.tb_report_snapshot
+
+    if not CHART_OF_ACCOUNTS:
+        st.info(
+            "No chart of accounts yet. Complete onboarding or add accounts under **New entry**."
+        )
+    elif tb_snap is None:
+        st.caption(
+            "Choose **from** and **to** dates and account scope, then click **GENERATE REPORT**. "
+            "Balances are as of the **end date** of the range (GL ending balance)."
+        )
+    else:
+        ps, pe = tb_snap["period_start"], tb_snap["period_end"]
+        ph = html.escape(format_period_header(ps, pe))
+        bl = html.escape(str(tb_snap["bank_label"]))
+        data = tb_snap["data"]
+        tot = data["totals"]
+        var_v = float(tot.get("variance") or 0)
+
+        col_dl, _ = st.columns([1, 4])
+        with col_dl:
+            st.download_button(
+                label="Download CSV",
+                data=_tb_report_csv(data),
+                file_name="trial_balance_report.csv",
+                mime="text/csv",
+                key="tb_download_csv",
+                type="primary",
+                use_container_width=True,
+            )
+
+        st.markdown(f"**Period:** {ph}  \n**Bank scope:** {bl}")
+
+        st.caption(
+            "Each row is the **ending** debit−credit balance for that account after trial balance "
+            "lines and posted transactions through the end date (same rules as General Ledger)."
+        )
+
+        if abs(var_v) > 0.02:
+            st.warning(
+                f"Debit and credit column totals differ by **${var_v:,.2f}**. "
+                "Investigate uncategorized lines, rounding, or incomplete posting."
+            )
+
+        tb_rows = ""
+        total_deb = float(tot["total_debits"])
+        total_crd = float(tot["total_credits"])
+        for row in data["rows"]:
+            deb = float(row.get("debits") or 0)
+            crd = float(row.get("credits") or 0)
+            deb_str = f"${deb:,.2f}"
+            crd_str = f"${crd:,.2f}"
+            coa_h = html.escape(str(row.get("coa") or ""))
+            tb_rows += f"""
         <tr style="background:#ffffff;">
-            <td style="padding:1rem;font-size:0.8rem;color:#636262;">{row['coa']}</td>
+            <td style="padding:1rem;font-size:0.8rem;color:#636262;">{coa_h}</td>
             <td style="padding:1rem;text-align:right;font-size:0.875rem;">{deb_str}</td>
             <td style="padding:1rem;text-align:right;font-size:0.875rem;">{crd_str}</td>
         </tr>
         <tr><td colspan="3" style="height:0.25rem;background:transparent;"></td></tr>"""
 
-    st.html(f"""
+        st.html(f"""
     <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:separate;border-spacing:0 0.25rem;">
             <thead>
@@ -896,6 +1351,261 @@ with tab_tb:
         </div>
     </div>
     """)
+
+    st.html("<div style='height:1.5rem'></div>")
+    _render_reports_back_to_top()
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# TAB 5: Personal spending (owner draw / personal COAs by period)
+# ────────────────────────────────────────────────────────────────────────────────
+with tab_personal:
+    if "personal_report_snapshot" not in st.session_state:
+        st.session_state.personal_report_snapshot = None
+
+    personal_account_options = ["All Accounts"] + [
+        f"{a['account_name']} ****{a['masked']}"
+        for a in BANK_ACCOUNTS
+        if a["account_type"] != "cash"
+    ]
+
+    coa_for_personal = [
+        a
+        for a in CHART_OF_ACCOUNTS
+        if a.get("type") in ("Equity", "Expense")
+    ]
+    coa_for_personal.sort(key=lambda a: a["number"])
+    coa_labels = [f"{a['number']} — {a['name']}" for a in coa_for_personal]
+    default_personal = [
+        lbl
+        for lbl in coa_labels
+        if "draw" in lbl.lower() or "personal" in lbl.lower()
+    ]
+
+    st.html("""
+    <h2 style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:800;
+               letter-spacing:-0.02em;margin:0 0 0.5rem;">Personal spending</h2>
+    <p style="color:#636262;margin-bottom:1rem;max-width:44rem;line-height:1.5;">
+        Owner draws and other personal buckets: pick <strong>Equity</strong> and/or
+        <strong>Expense</strong> chart accounts (for example <em>3110</em> legacy,
+        <em>3111</em> Food, <em>3112</em> Animals). Totals use the same General Ledger
+        rules: net per line is <strong>debit − credit</strong> for the period.
+    </p>
+    """)
+
+    with st.form("personal_report_form"):
+        ps_def_s, ps_def_e = _default_report_period()
+        ps1, ps2, ps3 = st.columns([1.1, 1.1, 2.2], gap="medium")
+        with ps1:
+            per_d0 = st.date_input(
+                "FROM DATE",
+                value=ps_def_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="personal_form_start",
+            )
+        with ps2:
+            per_d1 = st.date_input(
+                "TO DATE",
+                value=ps_def_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="personal_form_end",
+            )
+        with ps3:
+            per_bank_pick = st.selectbox(
+                "ACCOUNT FILTER",
+                options=personal_account_options,
+                key="personal_form_bank",
+            )
+        per_coa_pick = st.multiselect(
+            "CHART ACCOUNTS (categories)",
+            options=coa_labels,
+            default=default_personal[:12] if default_personal else [],
+            help="Each account is one category in the breakdown. Include 3110 and 3111+ for a full picture.",
+            key="personal_form_coa",
+        )
+        per_submit = st.form_submit_button(
+            "GENERATE REPORT", type="primary", use_container_width=True
+        )
+
+    if use_sample_data():
+        st.info(
+            "Demo mode uses sample transactions dated **2024**. Pick a 2024 range or set "
+            "**USE_SAMPLE_DATA=false** for PostgreSQL."
+        )
+
+    if per_submit:
+        per_start, per_end = _normalize_period(per_d0, per_d1)
+        per_bid = _bank_id_for_report_label(per_bank_pick, BANK_ACCOUNTS)
+        nums = []
+        for lbl in per_coa_pick:
+            nums.append(lbl.split(" — ", 1)[0].strip())
+        snap = personal_spending_report(per_start, per_end, per_bid, nums)
+        st.session_state.personal_report_snapshot = {
+            "data": snap,
+            "period_start": per_start,
+            "period_end": per_end,
+            "bank_label": per_bank_pick,
+            "coa_labels": list(per_coa_pick),
+        }
+
+    pr_snap = st.session_state.personal_report_snapshot
+
+    if not CHART_OF_ACCOUNTS:
+        st.info(
+            "No chart of accounts yet. Complete onboarding or add accounts under **New entry**."
+        )
+    elif pr_snap is None:
+        st.caption(
+            "Choose a date range, bank scope, and at least one chart account, then "
+            "**GENERATE REPORT**."
+        )
+    elif not pr_snap["coa_labels"]:
+        st.warning("Select at least one chart account to run this report.")
+    else:
+        pdata = pr_snap["data"]
+        ps, pe = pr_snap["period_start"], pr_snap["period_end"]
+        ph = html.escape(format_period_header(ps, pe))
+        bl = html.escape(str(pr_snap["bank_label"]))
+        gt = float(pdata.get("grand_total") or 0)
+
+        dl1, dl2, dl3 = st.columns(3)
+        with dl1:
+            st.download_button(
+                label="Summary CSV",
+                data=_personal_spending_summary_csv(pdata),
+                file_name="personal_spending_summary.csv",
+                mime="text/csv",
+                key="personal_dl_summary",
+                type="primary",
+                use_container_width=True,
+            )
+        with dl2:
+            st.download_button(
+                label="Detail CSV",
+                data=_personal_spending_detail_csv(pdata),
+                file_name="personal_spending_detail.csv",
+                mime="text/csv",
+                key="personal_dl_detail",
+                use_container_width=True,
+            )
+        with dl3:
+            st.download_button(
+                label="Monthly CSV",
+                data=_personal_spending_monthly_csv(pdata),
+                file_name="personal_spending_by_month.csv",
+                mime="text/csv",
+                key="personal_dl_monthly",
+                use_container_width=True,
+            )
+
+        st.markdown(f"**Period:** {ph}  \n**Bank scope:** {bl}")
+        st.html(f"""
+        <div class="mm-report-stat-card" style="margin:1rem 0 1.5rem 0;">
+            <span class="mm-stat-label">Total (selected accounts)</span>
+            <div style="font-family:'Manrope',sans-serif;font-size:1.75rem;font-weight:700;
+                        color:#154212;">${gt:,.2f}</div>
+        </div>
+        """)
+
+        st.caption(
+            "**Percent** is each account’s share of the total net for the selected accounts only."
+        )
+
+        cat_rows = ""
+        for row in pdata.get("categories", []):
+            num = html.escape(str(row.get("coa_number") or ""))
+            name = html.escape(str(row.get("coa_name") or ""))
+            net = float(row.get("net") or 0)
+            pct = float(row.get("pct") or 0)
+            label = f"{num} — {name}" if num else name
+            cat_rows += f"""
+            <tr>
+                <td style="padding:0.75rem 0;border-bottom:1px solid rgba(194,201,187,0.12);
+                           font-weight:500;">{label}</td>
+                <td style="padding:0.75rem 0.5rem;text-align:right;border-bottom:1px solid rgba(194,201,187,0.12);">
+                    ${net:,.2f}</td>
+                <td style="padding:0.75rem 0;text-align:right;border-bottom:1px solid rgba(194,201,187,0.12);">
+                    {pct:.1f}%</td>
+            </tr>"""
+
+        st.html(f"""
+        <div class="mm-report-table" style="margin-bottom:1.5rem;">
+            <h4 style="font-family:'Manrope',sans-serif;font-weight:700;margin-bottom:0.75rem;">
+                By category</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">ACCOUNT</th>
+                        <th style="text-align:right;padding:0.5rem 0.5rem;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">NET</th>
+                        <th style="text-align:right;padding:0.5rem 0;font-size:0.62rem;font-weight:700;
+                                   letter-spacing:0.1em;color:#636262;">% OF TOTAL</th>
+                    </tr>
+                </thead>
+                <tbody>{cat_rows}</tbody>
+            </table>
+        </div>
+        """)
+
+        by_m = pdata.get("by_month") or []
+        if by_m:
+            with st.expander("Monthly breakdown", expanded=False):
+                m_rows = ""
+                for block in by_m:
+                    lab = html.escape(str(block.get("label") or ""))
+                    tot = float(block.get("total") or 0)
+                    parts = ", ".join(
+                        f"{k}: ${v:,.2f}"
+                        for k, v in sorted((block.get("by_coa") or {}).items())
+                    )
+                    m_rows += f"""
+                    <tr>
+                        <td style="padding:0.5rem 0;vertical-align:top;">{lab}</td>
+                        <td style="padding:0.5rem 0.5rem;text-align:right;vertical-align:top;
+                                   font-weight:600;">${tot:,.2f}</td>
+                        <td style="padding:0.5rem 0;font-size:0.8rem;color:#636262;vertical-align:top;">
+                            {html.escape(parts)}</td>
+                    </tr>"""
+                st.html(f"""
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:0.35rem 0;">Month</th>
+                            <th style="text-align:right;padding:0.35rem 0.5rem;">Total</th>
+                            <th style="text-align:left;padding:0.35rem 0;">By account</th>
+                        </tr>
+                    </thead>
+                    <tbody>{m_rows}</tbody>
+                </table>
+                """)
+
+        st.subheader("Detail lines")
+        dlines = pdata.get("detail") or []
+        if not dlines:
+            st.info("No activity on these accounts in this period for the selected bank scope.")
+        else:
+            df_d = pd.DataFrame(
+                {
+                    "Date": [str(r.get("date") or "")[:10] for r in dlines],
+                    "Account": [
+                        f"{r.get('coa_number') or ''} — {r.get('coa_name') or ''}".strip(" —")
+                        for r in dlines
+                    ],
+                    "Payee": [r.get("payee") or "" for r in dlines],
+                    "Description": [r.get("description") or "" for r in dlines],
+                    "Debit": [r.get("debit") for r in dlines],
+                    "Credit": [r.get("credit") for r in dlines],
+                    "Net": [r.get("net") for r in dlines],
+                }
+            )
+            st.dataframe(df_d, use_container_width=True, hide_index=True)
+
+    st.html("<div style='height:1.5rem'></div>")
+    _render_reports_back_to_top()
+
 
 # ── Decorative footer ─────────────────────────────────────────────────────────
 st.html("""

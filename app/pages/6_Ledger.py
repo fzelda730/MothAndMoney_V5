@@ -1,7 +1,7 @@
 import streamlit as st
 import sys
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 import pandas as pd
@@ -71,6 +71,16 @@ def _acct_id_for_label(label: str):
         if f"{a['account_name']} ****{a['masked']}" == label:
             return a["id"]
     return None
+
+
+def _format_ledger_statement_date(d) -> str:
+    if d is None:
+        return "—"
+    if isinstance(d, datetime):
+        return d.date().strftime("%b %d, %Y")
+    if isinstance(d, date):
+        return d.strftime("%b %d, %Y")
+    return str(d)
 
 
 def _bump_ledger_upload_reset(account_id: str) -> None:
@@ -155,6 +165,13 @@ else:
         "ending_balance": carry,
     }
 
+if preview_rows and pv:
+    stmt_display = _format_ledger_statement_date(pv.get("end"))
+else:
+    stmt_display = _format_ledger_statement_date(s.get("last_statement_date"))
+
+_ending_balance_label = "Calculated ending" if preview_rows else "Ending Balance"
+
 # ── Balance summary bar ───────────────────────────────────────────────────────
 st.html(f"""
 <div class="mm-balance-bar">
@@ -171,13 +188,17 @@ st.html(f"""
         <div class="mm-balance-value">${s_bar['total_credits']:,.2f}</div>
     </div>
     <div class="mm-balance-item">
-        <div class="mm-balance-label">Ending Balance</div>
+        <div class="mm-balance-label">{_ending_balance_label}</div>
         <div class="mm-balance-value ending">${s_bar['ending_balance']:,.2f}
             <span class="material-symbols-outlined"
                   style="font-size:1rem;vertical-align:middle;color:#154212;">
                 check_circle
             </span>
         </div>
+    </div>
+    <div class="mm-balance-item">
+        <div class="mm-balance-label">Last Statement Date</div>
+        <div class="mm-balance-value mm-balance-date">{stmt_display}</div>
     </div>
 </div>
 """)
@@ -186,13 +207,16 @@ if preview_rows:
     st.caption(
         "**Beginning balance** is your **current** balance after all **posted** transactions (the right "
         "starting point for the next statement). **Debits**, **credits**, and **ending** apply only to "
-        "rows with **Include** checked in the preview. Uncheck lines that belong to another period, then commit."
+        "rows with **Include** checked in the preview. Uncheck lines that belong to another period, then commit. "
+        "**Last statement date** reflects this import’s **end date** until you commit."
     )
 else:
     st.caption(
         "**Beginning balance** is your **current book balance** after all **posted** transactions—the "
         "starting point for the next statement. Totals stay at zero until you load a file; then this bar "
         "shows that carry-forward plus **this file’s** debits, credits, and projected ending. "
+        "**Last statement date** is the **end date** you set for your **most recently ingested** CSV "
+        "(the batch’s period end). "
         "Chart-of-accounts numbers apply per **transaction** in the table below."
     )
     if not use_sample_data() and abs(float(s.get("ending_balance") or 0)) < 0.01:
@@ -401,6 +425,16 @@ with col_upload:
             label_visibility="visible",
         )
 
+    stmt_ending_balance = st.number_input(
+        "Bank statement ending balance",
+        value=0.0,
+        step=0.01,
+        format="%.2f",
+        help="Enter the ending balance exactly as shown on this bank or card statement. "
+        "It must match **Calculated ending** in the balance summary (included rows only) or commit is blocked.",
+        key=f"ledger_stmt_ending_{aid}",
+    )
+
     if uploaded:
         if st.button("Process File", type="primary"):
             fname = (uploaded.name or "").lower()
@@ -568,30 +602,43 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
                         f"Still missing on row(s): **{shown}**{more}."
                     )
                 else:
-                    with st.spinner("Saving…"):
-                        n, cerr = commit_ledger_csv_import(
-                            aid,
-                            pv["template_id"],
-                            pv["filename"],
-                            pv["start"],
-                            pv["end"],
-                            out_rows,
+                    deb_imp = sum(float(r.get("debit_amount") or 0) for r in out_rows)
+                    crd_imp = sum(float(r.get("credit_amount") or 0) for r in out_rows)
+                    beg_book = float(s["ending_balance"])
+                    calc_end = beg_book - deb_imp + crd_imp
+                    rc = round(calc_end, 2)
+                    rs = round(float(stmt_ending_balance), 2)
+                    if rc != rs:
+                        st.error(
+                            f"Statement ending **${rs:,.2f}** does not match calculated ending "
+                            f"**${rc:,.2f}** (difference **${rc - rs:,.2f}**). "
+                            "Fix included rows, chart accounts, or the amount from your statement, then try again."
                         )
-                    if cerr:
-                        if "Demo mode" in cerr:
-                            st.warning(cerr)
+                    else:
+                        with st.spinner("Saving…"):
+                            n, cerr = commit_ledger_csv_import(
+                                aid,
+                                pv["template_id"],
+                                pv["filename"],
+                                pv["start"],
+                                pv["end"],
+                                out_rows,
+                            )
+                        if cerr:
+                            if "Demo mode" in cerr:
+                                st.warning(cerr)
+                                st.session_state.pop("ledger_import_preview", None)
+                                _bump_ledger_upload_reset(aid)
+                                st.rerun()
+                            else:
+                                st.error(cerr)
+                        else:
+                            st.success(
+                                f"Imported {n} transaction(s). Payee rules updated for assigned rows."
+                            )
                             st.session_state.pop("ledger_import_preview", None)
                             _bump_ledger_upload_reset(aid)
                             st.rerun()
-                        else:
-                            st.error(cerr)
-                    else:
-                        st.success(
-                            f"Imported {n} transaction(s). Payee rules updated for assigned rows."
-                        )
-                        st.session_state.pop("ledger_import_preview", None)
-                        _bump_ledger_upload_reset(aid)
-                        st.rerun()
 
     st.html("<div style='height:1.5rem'></div>")
 
@@ -698,26 +745,6 @@ st.html(f"""
     </div>
 </div>
 """)
-
-st.html("<div style='height:3rem'></div>")
-
-# ── Finalize & Submit ─────────────────────────────────────────────────────────
-col_info, col_actions2 = st.columns([2, 1], gap="large")
-with col_info:
-    st.html("""
-    <p style="font-size:0.8rem;color:#636262;line-height:1.6;">
-        By submitting this ledger, you are finalizing the transactions for the current period.
-        This action is recorded in the immutable studio audit log.
-    </p>
-    """)
-
-with col_actions2:
-    col_draft, col_submit = st.columns([1, 2], gap="small")
-    with col_draft:
-        st.button("Save Draft", key="save_draft")
-    with col_submit:
-        if st.button("Finalize & Submit Ledger", key="finalize", type="primary"):
-            st.success("Ledger finalized and submitted. Dashboard updated.")
 
 # ── Decorative footer ─────────────────────────────────────────────────────────
 st.html("""

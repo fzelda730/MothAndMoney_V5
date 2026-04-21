@@ -178,16 +178,68 @@ def _icon_for_account_type(account_type: str) -> tuple[str, str, str]:
 
 
 def fetch_bank_accounts() -> list[dict[str, Any]]:
-    """Aligned with BANK_ACCOUNTS from sample_data (includes UI icon fields)."""
+    """Aligned with BANK_ACCOUNTS from sample_data (includes UI icon fields).
+
+    last_statement_date: end date of the latest committed import batch (period_end), or if that
+    is null, the latest posted transaction date for the account.
+
+    beginning_balance: ledger baseline from v_account_balances (latest trial-balance submission).
+    statement_beginning_balance: book balance at the start of the last import's statement period
+    (baseline minus cleared/pending activity before that batch's period_start); falls back to
+    beginning_balance when period_start is missing.
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT bank_account_id, account_name, bank_name, account_number_masked,
-                       account_type::text AS account_type,
-                       beginning_balance, total_debits, total_credits, ending_balance
-                FROM v_account_balances
-                ORDER BY account_name
+                SELECT v.bank_account_id, v.account_name, v.bank_name, v.account_number_masked,
+                       v.account_type::text AS account_type,
+                       v.beginning_balance, v.total_debits, v.total_credits, v.ending_balance,
+                       COALESCE(
+                           last_ib.period_end,
+                           (SELECT MAX(t.date) FROM transactions t
+                            WHERE t.bank_account_id = v.bank_account_id)
+                       ) AS last_statement_date,
+                       CASE
+                         WHEN last_ib.period_start IS NOT NULL THEN
+                           v.beginning_balance
+                           - COALESCE((
+                               SELECT SUM(t.debit_amount)
+                               FROM transactions t
+                               INNER JOIN bank_accounts ba ON ba.id = t.bank_account_id
+                               WHERE t.bank_account_id = v.bank_account_id
+                                 AND t.date < last_ib.period_start
+                                 AND t.status IN ('cleared', 'pending')
+                                 AND (
+                                   ba.ledger_coa_id IS NULL
+                                   OR t.coa_id IS DISTINCT FROM ba.ledger_coa_id
+                                   OR t.source = 'trial_balance_opening'::transaction_source_enum
+                                 )
+                             ), 0)
+                           + COALESCE((
+                               SELECT SUM(t.credit_amount)
+                               FROM transactions t
+                               INNER JOIN bank_accounts ba ON ba.id = t.bank_account_id
+                               WHERE t.bank_account_id = v.bank_account_id
+                                 AND t.date < last_ib.period_start
+                                 AND t.status IN ('cleared', 'pending')
+                                 AND (
+                                   ba.ledger_coa_id IS NULL
+                                   OR t.coa_id IS DISTINCT FROM ba.ledger_coa_id
+                                   OR t.source = 'trial_balance_opening'::transaction_source_enum
+                                 )
+                             ), 0)
+                         ELSE v.beginning_balance
+                       END AS statement_beginning_balance
+                FROM v_account_balances v
+                LEFT JOIN LATERAL (
+                    SELECT ib.period_end, ib.period_start
+                    FROM import_batches ib
+                    WHERE ib.bank_account_id = v.bank_account_id
+                    ORDER BY ib.imported_at DESC
+                    LIMIT 1
+                ) last_ib ON TRUE
+                ORDER BY v.account_name
                 """
             )
             rows = cur.fetchall()
@@ -210,12 +262,124 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
                 "icon_color": icon_color,
                 "accent": accent,
                 "beginning_balance": _num(row["beginning_balance"]),
+                "statement_beginning_balance": _num(row["statement_beginning_balance"]),
                 "total_debits": deb_display,
                 "total_credits": tc,
                 "ending_balance": _num(row["ending_balance"]),
+                "last_statement_date": row["last_statement_date"],
             }
         )
     return out
+
+
+def fetch_dashboard_stats() -> dict[str, Any]:
+    """Portfolio and P&L-style aggregates from v_account_balances and classified transactions."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH portfolio AS (
+                    SELECT
+                        COALESCE(SUM(ending_balance), 0) AS total_portfolio,
+                        COALESCE(SUM(
+                            CASE WHEN account_type::text IN ('checking', 'savings', 'cash')
+                                 THEN ending_balance ELSE 0 END
+                        ), 0) AS liquidity
+                    FROM v_account_balances
+                ),
+                income_mtd AS (
+                    SELECT COALESCE(SUM(t.credit_amount - t.debit_amount), 0) AS amt
+                    FROM transactions t
+                    INNER JOIN chart_of_accounts c ON c.id = t.coa_id
+                    WHERE c.account_type = 'income'::coa_account_type_enum
+                      AND t.status IN ('pending', 'cleared', 'flagged')
+                      AND t.source <> 'trial_balance_opening'::transaction_source_enum
+                      AND t.date >= date_trunc('month', CURRENT_DATE)::date
+                      AND t.date <= CURRENT_DATE
+                ),
+                income_prior AS (
+                    SELECT COALESCE(SUM(t.credit_amount - t.debit_amount), 0) AS amt
+                    FROM transactions t
+                    INNER JOIN chart_of_accounts c ON c.id = t.coa_id
+                    WHERE c.account_type = 'income'::coa_account_type_enum
+                      AND t.status IN ('pending', 'cleared', 'flagged')
+                      AND t.source <> 'trial_balance_opening'::transaction_source_enum
+                      AND t.date >= (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date
+                      AND t.date <= (CURRENT_DATE - INTERVAL '1 month')
+                ),
+                expense_mtd AS (
+                    SELECT COALESCE(SUM(t.debit_amount - t.credit_amount), 0) AS amt
+                    FROM transactions t
+                    INNER JOIN chart_of_accounts c ON c.id = t.coa_id
+                    WHERE c.account_type = 'expense'::coa_account_type_enum
+                      AND t.status IN ('pending', 'cleared', 'flagged')
+                      AND t.source <> 'trial_balance_opening'::transaction_source_enum
+                      AND t.date >= date_trunc('month', CURRENT_DATE)::date
+                      AND t.date <= CURRENT_DATE
+                )
+                SELECT
+                    p.total_portfolio,
+                    p.liquidity,
+                    i.amt AS income_mtd,
+                    ip.amt AS income_prior,
+                    e.amt AS expense_mtd
+                FROM portfolio p
+                CROSS JOIN income_mtd i
+                CROSS JOIN income_prior ip
+                CROSS JOIN expense_mtd e
+                """
+            )
+            row = cur.fetchone()
+
+    total_portfolio = _num(row["total_portfolio"])
+    liquidity = _num(row["liquidity"])
+    income_mtd = _num(row["income_mtd"])
+    income_prior = _num(row["income_prior"])
+    expense_mtd = _num(row["expense_mtd"])
+
+    if income_prior > 0.01:
+        trend_pct = (income_mtd - income_prior) / income_prior * 100.0
+    else:
+        trend_pct = None
+
+    return {
+        "total_portfolio_value": total_portfolio,
+        "portfolio_trend": trend_pct,
+        "available_liquidity": liquidity,
+        "pending_commissions": 0.0,
+        "studio_income": income_mtd,
+        "studio_income_label": "Month to date (income accounts)",
+        "material_costs": expense_mtd,
+        "material_costs_label": "Month to date (expense accounts)",
+    }
+
+
+def fetch_tax_provision() -> dict[str, Any]:
+    """Quarter-to-date income and reserve using studio_profile.default_tax_rate."""
+    sp = fetch_studio_profile()
+    rate = _num(sp.get("default_tax_rate"))
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(t.credit_amount - t.debit_amount), 0) AS q_sales
+                FROM transactions t
+                INNER JOIN chart_of_accounts c ON c.id = t.coa_id
+                WHERE c.account_type = 'income'::coa_account_type_enum
+                  AND t.status IN ('pending', 'cleared', 'flagged')
+                  AND t.source <> 'trial_balance_opening'::transaction_source_enum
+                  AND t.date >= date_trunc('quarter', CURRENT_DATE)::date
+                  AND t.date <= CURRENT_DATE
+                """
+            )
+            qrow = cur.fetchone()
+    quarterly_sales = _num(qrow["q_sales"])
+    reserve = quarterly_sales * rate / 100.0
+    return {
+        "quarterly_sales": quarterly_sales,
+        "reserve_amount": reserve,
+        "tax_rate": rate,
+    }
 
 
 def insert_bank(bank_name: str, bank_type: str) -> str:
@@ -731,16 +895,31 @@ def fetch_ledger_transactions(
 
 
 def fetch_ledger_summary(bank_account_id: str) -> dict[str, Any]:
-    """Aligned with LEDGER_SUMMARY for one bank account."""
+    """Balances from v_account_balances plus period_end of the most recently ingested file (import_batches)."""
+    aid = (bank_account_id or "").strip()
+    last_statement_date: date | None = None
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT period_end FROM import_batches
+                WHERE bank_account_id = %s::uuid
+                ORDER BY imported_at DESC
+                LIMIT 1
+                """,
+                (aid,),
+            )
+            pr = cur.fetchone()
+            if pr and pr.get("period_end"):
+                last_statement_date = pr["period_end"]
+
             cur.execute(
                 """
                 SELECT beginning_balance, total_debits, total_credits, ending_balance
                 FROM v_account_balances
                 WHERE bank_account_id = %s
                 """,
-                (bank_account_id,),
+                (aid,),
             )
             row = cur.fetchone()
     if not row:
@@ -750,6 +929,7 @@ def fetch_ledger_summary(bank_account_id: str) -> dict[str, Any]:
             "total_credits": 0.0,
             "ending_balance": 0.0,
             "is_balanced": True,
+            "last_statement_date": last_statement_date,
         }
     beg = _num(row["beginning_balance"])
     td = _num(row["total_debits"])
@@ -761,6 +941,7 @@ def fetch_ledger_summary(bank_account_id: str) -> dict[str, Any]:
         "total_credits": tc,
         "ending_balance": end,
         "is_balanced": abs(td - tc) < 0.01 or True,
+        "last_statement_date": last_statement_date,
     }
 
 

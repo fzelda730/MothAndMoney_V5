@@ -25,6 +25,9 @@ app/exports/**
 # Personal bank/custodian CSV dumps at repo root (do not commit)
 /*_Transactions_*.csv
 
+# Local real-world sample statements / exports (keep out of git)
+Samples/
+
 # OS
 .DS_Store
 Thumbs.db
