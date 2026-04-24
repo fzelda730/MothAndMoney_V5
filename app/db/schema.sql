@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ============================================================
 
 CREATE TYPE account_type_enum AS ENUM (
-    'checking', 'savings', 'credit_card', 'cash'
+    'checking', 'savings', 'credit_card', 'cash', 'journal'
 );
 
 CREATE TYPE bank_type_enum AS ENUM (
@@ -24,7 +24,7 @@ CREATE TYPE template_type_enum AS ENUM (
 );
 
 CREATE TYPE transaction_source_enum AS ENUM (
-    'bank_import', 'credit_card_import', 'trial_balance_opening'
+    'bank_import', 'credit_card_import', 'trial_balance_opening', 'journal_entry', 'manual_register'
 );
 
 CREATE TYPE transaction_status_enum AS ENUM (

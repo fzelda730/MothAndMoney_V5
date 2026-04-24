@@ -169,17 +169,19 @@ with st.form("add_bank_account", clear_on_submit=True):
     last4 = st.text_input("Last four digits (or mask)", max_chars=10)
 
     if bt_eff == "depository":
-        at_label = st.selectbox(
-            "Account type",
-            ["checking", "savings", "cash"],
-            format_func=lambda x: x.replace("_", " ").title(),
-        )
-        account_type = at_label
+        _at_options = ["checking", "savings", "cash", "journal"]
     elif bt_eff == "credit_card":
-        account_type = "credit_card"
-        st.caption("Account type: **credit card**")
+        _at_options = ["credit_card"]
     else:
-        account_type = "checking"
+        _at_options = ["checking"]
+    account_type = st.selectbox(
+        "Account type",
+        _at_options,
+        format_func=lambda x: x.replace("_", " ").title(),
+        help="Credit card accounts use a **credit card issuer** institution (see above).",
+        disabled=bt_eff not in ("depository", "credit_card"),
+    )
+    if bt_eff not in ("depository", "credit_card"):
         st.caption("Choose an institution above to set account type options.")
 
     submitted = st.form_submit_button("Save account", type="primary")

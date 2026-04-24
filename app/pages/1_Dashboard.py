@@ -2,6 +2,7 @@ import html
 import streamlit as st
 import sys
 from pathlib import Path
+from typing import Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -47,6 +48,18 @@ def _fmt_last_statement_date(d) -> str:
     if hasattr(d, "strftime"):
         return d.strftime("%b %d, %Y")
     return str(d)
+
+
+def _dashboard_ending_display(acct: dict) -> Tuple[float, Optional[float]]:
+    """
+    (amount shown in Ending column, register-only ending when chart balance overrides).
+    Chart balance matches TB/GL for linked ledger COA (includes journals on all books).
+    """
+    reg = float(acct.get("ending_balance") or 0)
+    ch = acct.get("chart_ending_balance")
+    if ch is not None:
+        return float(ch), reg
+    return reg, None
 
 
 # ── Main content ──────────────────────────────────────────────────────────────
@@ -209,9 +222,11 @@ st.html("""
 
 st.caption(
     "**Last statement date** is the **end date of the last committed import** for that account "
-    "(Ledger ▸ Commit import). **Beginning balance** is the **book balance at the start of that "
-    "statement period** (trial-balance baseline plus activity before the period start). "
-    "Total debits/credits are **all** cleared and pending register activity, not only that period."
+    "(Ledger ▸ Commit import). **Beginning balance** is the **register** balance at the start of that "
+    "statement period. **Ending balance** uses the **chart (General Ledger) total** for the linked "
+    "ledger account when one is set under Bank & card accounts—same as TB/GL, including journal "
+    "activity. A **Register** sub-line appears when that differs from the book-only roll-up. "
+    "Total debits/credits are register activity (cleared/pending), not the chart total."
 )
 
 # Build table HTML
@@ -220,7 +235,13 @@ for acct in BANK_ACCOUNTS:
     beg = float(acct.get("statement_beginning_balance", acct["beginning_balance"]))
     deb = acct["total_debits"]
     crd = acct["total_credits"]
-    end = acct["ending_balance"]
+    end, reg_only = _dashboard_ending_display(acct)
+    register_sub = ""
+    if reg_only is not None and abs(end - reg_only) > 0.005:
+        register_sub = (
+            f'<div style="font-size:0.72rem;color:#636262;font-weight:500;margin-top:0.2rem;">'
+            f'Register ${reg_only:,.2f}</div>'
+        )
 
     deb_str = f'<span class="mm-debit">-${abs(deb):,.2f}</span>' if deb and deb < 0 else \
               f'<span class="mm-muted">${deb:,.2f}</span>'
@@ -247,7 +268,7 @@ for acct in BANK_ACCOUNTS:
         <td style="padding:1rem 1.5rem;text-align:right;background:#ffffff;">{crd_str}</td>
         <td style="padding:1rem 1.5rem;text-align:right;background:#ffffff;
                    font-weight:700;color:{end_color};border-radius:0 2px 2px 0;">
-            ${end:,.2f}
+            ${end:,.2f}{register_sub}
         </td>
     </tr>
     <tr><td colspan="6" style="height:0.5rem;background:transparent;"></td></tr>

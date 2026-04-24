@@ -15,9 +15,11 @@ from data.bank_statement_csv import (
     BANK_COLUMN_NOT_USED,
     BANK_MAP_FIELD_KEYS,
     bank_statement_csv_headers_from_bytes,
+    bank_statement_headers_from_grid,
     build_bank_statement_preview_rows,
     suggest_bank_column_mapping,
 )
+from data.ledger_statement_import import extract_statement_grid_from_pdf
 from data.providers import (
     bank_import_template_by_id,
     db_ready,
@@ -123,21 +125,51 @@ with col_left:
     <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:0.95rem;
                margin-bottom:0.25rem;">Upload Preview</h4>
     <p style="font-size:0.75rem;color:#636262;margin-bottom:1rem;">
-        Upload a sample .csv file to identify available columns for the mapping process.
+        Upload a sample <strong>CSV</strong> or <strong>PDF</strong> to identify columns for mapping.
+        PDFs use the same table extraction as the Ledger (text tables only; scanned image PDFs are not supported).
     </p>
     """)
 
     uploaded = st.file_uploader(
         "Select a sample statement",
-        type=["csv"],
-        help="Accepts CSV files. Top up to 10MB.",
+        type=["csv", "pdf"],
+        help="CSV or PDF for mapping and preview (typical limit ~200MB).",
         label_visibility="collapsed",
     )
 
     if uploaded is not None:
         st.success(f"Loaded: {uploaded.name}")
         bank_raw = uploaded.getvalue()
-        bank_hdr_list, bank_hdr_idx = bank_statement_csv_headers_from_bytes(bank_raw)
+        name_l = (uploaded.name or "").lower()
+        bank_hdr_list = []
+        bank_hdr_idx = 0
+        if name_l.endswith(".pdf"):
+            pdf_err: str | None = None
+            pdf_grid: list[list[str]] | None = None
+            try:
+                pdf_grid = extract_statement_grid_from_pdf("bank_statement", bank_raw)
+            except RuntimeError as ex:
+                pdf_err = str(ex)
+            except Exception as ex:
+                pdf_err = f"Could not read PDF: {ex}"
+            if pdf_err:
+                st.error(pdf_err)
+                st.session_state.pop("bank_stmt_grid_rows", None)
+            elif not pdf_grid or not any(
+                any((c or "").strip() for c in row) for row in pdf_grid
+            ):
+                st.error(
+                    "No table-like rows found in this PDF. Try a CSV export, or a PDF with "
+                    "selectable text and an embedded transaction table (scanned image PDFs are not supported)."
+                )
+                st.session_state.pop("bank_stmt_grid_rows", None)
+            else:
+                st.session_state["bank_stmt_grid_rows"] = pdf_grid
+                bank_hdr_list, bank_hdr_idx = bank_statement_headers_from_grid(pdf_grid)
+        else:
+            st.session_state.pop("bank_stmt_grid_rows", None)
+            bank_hdr_list, bank_hdr_idx = bank_statement_csv_headers_from_bytes(bank_raw)
+
         hsig = hashlib.sha256(bank_raw).hexdigest()[:28]
         if st.session_state.get("bank_csv_hdr_sig") != hsig:
             st.session_state["bank_csv_hdr_sig"] = hsig
@@ -156,6 +188,7 @@ with col_left:
                     st.session_state[f"tpl_bank_{fk}"] = BANK_COLUMN_NOT_USED
     else:
         st.session_state.pop("bank_csv_hdr_sig", None)
+        st.session_state.pop("bank_stmt_grid_rows", None)
 
     st.html("<div style='height:1.5rem'></div>")
 
@@ -211,7 +244,7 @@ with col_left:
             )
         else:
             st.caption(
-                "Upload a CSV to pick columns from a sample, or type the exact header text from your bank file."
+                "Upload a CSV or PDF to pick columns from a sample, or type the exact header text from your bank file."
             )
             for emoji, map_key, field in BANK_TEMPLATE_FIELDS:
                 mk = f"tpl_bank_manual_{map_key}"
@@ -250,10 +283,14 @@ with col_right:
 
     if use_sample_data():
         st.info(
-            "Demo mode: the preview reflects your uploaded CSV only; saving does not write to PostgreSQL."
+            "Demo mode: the preview reflects your uploaded CSV or PDF only; saving does not write to PostgreSQL."
         )
 
     preview_rows_html = ""
+    grid_for_preview = st.session_state.get("bank_stmt_grid_rows")
+    if not isinstance(grid_for_preview, list):
+        grid_for_preview = None
+
     if bank_raw is not None and bank_hdr_list:
         column_map = {
             fk: st.session_state.get(f"tpl_bank_{fk}", BANK_COLUMN_NOT_USED)
@@ -266,6 +303,7 @@ with col_right:
             column_map,
             BANK_COLUMN_NOT_USED,
             max_rows=3,
+            grid_rows=grid_for_preview,
         )
         for row in preview_data:
             type_color = "#154212" if row["type"] == "CREDIT" else "#71151d"
@@ -290,7 +328,7 @@ with col_right:
             <td style="padding:0.75rem;font-size:0.75rem;color:#636262;">{c}</td>
         </tr>"""
     elif uploaded is None:
-        st.caption("Upload a CSV to populate the preview.")
+        st.caption("Upload a CSV or PDF to populate the preview.")
     else:
         st.caption("No data rows to show yet, or headers could not be read.")
 

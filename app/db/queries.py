@@ -26,6 +26,17 @@ def _num(x: Any) -> float:
     return float(x)
 
 
+def _coa_id_key(s: str | None) -> str:
+    """Canonical string for a COA uuid (avoids case / formatting mismatches in dict lookups)."""
+    t = (s or "").strip()
+    if not t:
+        return ""
+    try:
+        return str(UUID(t))
+    except ValueError:
+        return t
+
+
 def _fmt_ledger_date(d: date | datetime) -> str:
     if isinstance(d, datetime):
         d = d.date()
@@ -174,6 +185,8 @@ def _icon_for_account_type(account_type: str) -> tuple[str, str, str]:
         return "credit_card", "#71151d", "#ffb3b1"
     if t == "cash":
         return "payments", "#636262", "#e5e2e1"
+    if t == "journal":
+        return "menu_book", "#154212", "#636262"
     return "account_balance", "#154212", "#154212"
 
 
@@ -195,6 +208,8 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
                 SELECT v.bank_account_id, v.account_name, v.bank_name, v.account_number_masked,
                        v.account_type::text AS account_type,
                        v.beginning_balance, v.total_debits, v.total_credits, v.ending_balance,
+                       ba.ledger_coa_id::text AS ledger_coa_id,
+                       lc.account_number AS ledger_coa_number,
                        COALESCE(
                            last_ib.period_end,
                            (SELECT MAX(t.date) FROM transactions t
@@ -232,6 +247,8 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
                          ELSE v.beginning_balance
                        END AS statement_beginning_balance
                 FROM v_account_balances v
+                INNER JOIN bank_accounts ba ON ba.id = v.bank_account_id AND ba.is_active = TRUE
+                LEFT JOIN chart_of_accounts lc ON lc.id = ba.ledger_coa_id
                 LEFT JOIN LATERAL (
                     SELECT ib.period_end, ib.period_start
                     FROM import_batches ib
@@ -251,6 +268,8 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
         tc = _num(row["total_credits"])
         # Match sample_data sign convention: debits column negative for outflows on bank accounts
         deb_display = -td if td else 0.0
+        lid = row.get("ledger_coa_id")
+        lnum = row.get("ledger_coa_number")
         out.append(
             {
                 "id": str(row["bank_account_id"]),
@@ -266,6 +285,8 @@ def fetch_bank_accounts() -> list[dict[str, Any]]:
                 "total_debits": deb_display,
                 "total_credits": tc,
                 "ending_balance": _num(row["ending_balance"]),
+                "ledger_coa_id": (str(lid).strip() if lid else None),
+                "ledger_coa_number": (str(lnum).strip() if lnum else None),
                 "last_statement_date": row["last_statement_date"],
             }
         )
@@ -437,7 +458,7 @@ def insert_bank_account(
         raise ValueError("Account name is required.")
     if not masked:
         raise ValueError("Last four (or mask) is required.")
-    if at not in ("checking", "savings", "credit_card", "cash"):
+    if at not in ("checking", "savings", "credit_card", "cash", "journal"):
         raise ValueError("Invalid account_type.")
     tid = (template_id or "").strip() or None
     with get_connection() as conn:
@@ -452,6 +473,315 @@ def insert_bank_account(
             )
             row = cur.fetchone()
             return str(row["id"])
+
+
+def insert_journal_entry(
+    *,
+    bank_account_id: str,
+    entry_date: date,
+    reference: str,
+    memo: str | None,
+    lines: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """
+    Insert a balanced journal entry: one transactions row per line, shared posting_group_id.
+    bank_account_id must be a bank_accounts row with account_type = journal.
+    Returns (posting_group_id, error_message); posting_group_id is set only on success.
+    """
+    aid = (bank_account_id or "").strip()
+    ref = (reference or "").strip()[:500]
+    if not aid:
+        return None, "Journal book is required."
+    if not ref:
+        return None, "Reference is required."
+    if not lines or len(lines) < 2:
+        return None, "Add at least two lines for a journal entry."
+
+    try:
+        UUID(aid)
+    except ValueError:
+        return None, "Invalid journal book id."
+
+    total_deb = 0.0
+    total_crd = 0.0
+    normalized_lines: list[tuple[str, float, float]] = []
+    for i, ln in enumerate(lines):
+        cid = (ln.get("coa_id") or "").strip()
+        deb = float(ln.get("debit_amount") or 0)
+        crd = float(ln.get("credit_amount") or 0)
+        if not cid:
+            return None, f"Line {i + 1}: choose a chart account."
+        try:
+            UUID(cid)
+        except ValueError:
+            return None, f"Line {i + 1}: invalid chart account."
+        if deb < 0 or crd < 0:
+            return None, f"Line {i + 1}: amounts cannot be negative."
+        if deb > 0 and crd > 0:
+            return None, f"Line {i + 1}: enter either a debit or a credit, not both."
+        if deb == 0 and crd == 0:
+            return None, f"Line {i + 1}: enter a debit or a credit."
+        total_deb += deb
+        total_crd += crd
+        normalized_lines.append((cid, deb, crd))
+
+    if abs(total_deb - total_crd) > 0.01:
+        return (
+            None,
+            f"Debits ({total_deb:.2f}) must equal credits ({total_crd:.2f}).",
+        )
+
+    payee_n = " ".join(ref.lower().split())[:500]
+    group_id = str(uuid.uuid4())
+    desc = (memo or "").strip() or None
+    if desc:
+        desc = desc[:5000]
+
+    d = entry_date
+    if isinstance(d, datetime):
+        d = d.date()
+
+    tuples: list[tuple[Any, ...]] = []
+    for cid, deb, crd in normalized_lines:
+        tuples.append((aid, cid, group_id, d, ref, payee_n, deb, crd, desc))
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT account_type::text AS account_type
+                FROM bank_accounts
+                WHERE id = %s::uuid AND is_active = TRUE
+                """,
+                (aid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None, "Journal book was not found."
+            if (row["account_type"] or "").strip().lower() != "journal":
+                return (
+                    None,
+                    "Selected account is not a journal register. "
+                    "Add one under Bank & card accounts (Journal type).",
+                )
+
+            execute_values(
+                cur,
+                """
+                INSERT INTO transactions (
+                    bank_account_id, import_batch_id, coa_id, posting_group_id, date,
+                    payee, payee_normalized, debit_amount, credit_amount, description,
+                    source, status, is_categorized
+                ) VALUES %s
+                """,
+                tuples,
+                template=(
+                    "(%s, NULL, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, "
+                    "'journal_entry'::transaction_source_enum, "
+                    "'cleared'::transaction_status_enum, TRUE)"
+                ),
+            )
+
+    return group_id, None
+
+
+def insert_manual_register_transaction(
+    *,
+    bank_account_id: str,
+    entry_date: date,
+    payee: str,
+    description: str | None,
+    coa_id: str,
+    debit_amount: float,
+    credit_amount: float,
+) -> tuple[str | None, str | None]:
+    """
+    One cleared transaction on a real bank register (not journal book).
+    CoA must differ from the account's linked ledger_coa_id when that link exists,
+    or v_account_balances will not include this row in the register total.
+    Returns (new_transaction_id, error_message).
+    """
+    aid = (bank_account_id or "").strip()
+    cid = (coa_id or "").strip()
+    pay = (payee or "").strip()[:500]
+    if not pay:
+        return None, "Payee (or short description) is required."
+    if not aid or not cid:
+        return None, "Bank account and chart account are required."
+    try:
+        UUID(aid)
+        UUID(cid)
+    except ValueError:
+        return None, "Invalid account id."
+    try:
+        deb = round(float(debit_amount or 0), 2)
+        crd = round(float(credit_amount or 0), 2)
+    except (TypeError, ValueError):
+        return None, "Invalid amount."
+    if deb < 0 or crd < 0:
+        return None, "Amounts cannot be negative."
+    if deb > 0 and crd > 0:
+        return None, "Enter either a debit or a credit to the register, not both."
+    if deb == 0 and crd == 0:
+        return None, "Enter a non-zero amount."
+    d = entry_date
+    if isinstance(d, datetime):
+        d = d.date()
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ba.account_type::text AS account_type,
+                       ba.ledger_coa_id::text AS ledger_coa_id, ba.is_active
+                FROM bank_accounts ba
+                WHERE ba.id = %s::uuid
+                """,
+                (aid,),
+            )
+            bar = cur.fetchone()
+            if not bar or not bar.get("is_active"):
+                return None, "Bank account not found or inactive."
+            if (bar.get("account_type") or "").strip().lower() == "journal":
+                return (
+                    None,
+                    "Use **Journal entry** for the journal book. Register transactions are for "
+                    "checking, savings, cards, and cash.",
+                )
+            lcid = (bar.get("ledger_coa_id") or "").strip() or None
+            if lcid and cid == lcid:
+                return (
+                    None,
+                    "Choose a chart account other than this register’s **Ledger COA** (the linked "
+                    "cash line). That pairing does not change the book balance. Pick an offset such "
+                    "as equity, income, or expense, or a clearing account.",
+                )
+            cur.execute(
+                "SELECT 1 FROM chart_of_accounts WHERE id = %s::uuid AND is_active = TRUE",
+                (cid,),
+            )
+            if not cur.fetchone():
+                return None, "Chart account not found or inactive."
+
+            desc = (description or "").strip() or None
+            if desc:
+                desc = desc[:5000]
+            payee_n = " ".join(pay.lower().split())[:500]
+
+            cur.execute(
+                """
+                INSERT INTO transactions (
+                    bank_account_id, import_batch_id, coa_id, posting_group_id, date,
+                    payee, payee_normalized, debit_amount, credit_amount, description,
+                    source, status, is_categorized
+                ) VALUES (
+                    %s::uuid, NULL, %s::uuid, NULL, %s,
+                    %s, %s, %s, %s, %s,
+                    'manual_register'::transaction_source_enum,
+                    'cleared'::transaction_status_enum, TRUE
+                )
+                RETURNING id::text
+                """,
+                (aid, cid, d, pay, payee_n, deb, crd, desc),
+            )
+            r = cur.fetchone()
+            tid = r["id"] if r else None
+    return tid, None
+
+
+def fetch_journal_entries_report(
+    period_start: date,
+    period_end: date,
+    journal_book_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Manual journal entries in a date range: one dict per posting_group_id with line detail.
+    journal_book_id filters to that bank_accounts row; None = all journal books.
+    """
+    ps, pe = period_start, period_end
+    if ps > pe:
+        ps, pe = pe, ps
+
+    jid = (journal_book_id or "").strip() or None
+    if jid:
+        try:
+            UUID(jid)
+        except ValueError:
+            jid = None
+
+    params: list[Any] = [ps, pe]
+    book_sql = ""
+    if jid:
+        book_sql = " AND t.bank_account_id = %s::uuid "
+        params.append(jid)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    t.posting_group_id::text AS posting_group_id,
+                    t.date AS entry_date,
+                    t.payee AS reference,
+                    t.description AS memo,
+                    ba.account_name AS journal_book_name,
+                    coa.account_number AS coa_number,
+                    coa.account_name AS coa_name,
+                    t.debit_amount,
+                    t.credit_amount,
+                    t.created_at
+                FROM transactions t
+                INNER JOIN bank_accounts ba ON ba.id = t.bank_account_id
+                INNER JOIN chart_of_accounts coa ON coa.id = t.coa_id
+                WHERE t.source = 'journal_entry'::transaction_source_enum
+                  AND t.status IN ('pending', 'cleared', 'flagged')
+                  AND t.posting_group_id IS NOT NULL
+                  AND t.date >= %s AND t.date <= %s
+                  {book_sql}
+                ORDER BY t.date DESC, t.posting_group_id, t.created_at
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+
+    by_gid: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for r in rows:
+        gid = (r.get("posting_group_id") or "").strip()
+        if not gid:
+            continue
+        if gid not in by_gid:
+            by_gid[gid] = {
+                "posting_group_id": gid,
+                "entry_date": r["entry_date"],
+                "reference": (r.get("reference") or "").strip(),
+                "memo": (r.get("memo") or "").strip() or None,
+                "journal_book_name": (r.get("journal_book_name") or "").strip(),
+                "lines": [],
+            }
+            order.append(gid)
+        by_gid[gid]["lines"].append(
+            {
+                "coa_number": (r.get("coa_number") or "").strip(),
+                "coa_name": (r.get("coa_name") or "").strip(),
+                "debit": _num(r.get("debit_amount")),
+                "credit": _num(r.get("credit_amount")),
+            }
+        )
+
+    out: list[dict[str, Any]] = []
+    for gid in order:
+        e = by_gid[gid]
+        lines = e["lines"]
+        td = sum(float(ln["debit"]) for ln in lines)
+        tc = sum(float(ln["credit"]) for ln in lines)
+        e["total_debit"] = td
+        e["total_credit"] = tc
+        ed = e["entry_date"]
+        if isinstance(ed, datetime):
+            e["entry_date"] = ed.date()
+        out.append(e)
+    return out
 
 
 def count_transactions_for_bank_account(bank_account_id: str) -> int:
@@ -1405,6 +1735,10 @@ def _coa_number_range_clause(
 _GL_STATUS_FILTER = " AND t.status IN ('pending', 'cleared') "
 # GL includes flagged so activity is visible; ledger review can still flag items in the UI.
 _GL_LEDGER_STATUS_FILTER = " AND t.status IN ('pending', 'cleared', 'flagged') "
+# Seeded opening txns set bank-register carry; COA beginning already includes trial_balance_entries.
+_GL_EXCLUDE_TB_OPENING = (
+    " AND (t.source IS DISTINCT FROM 'trial_balance_opening'::transaction_source_enum) "
+)
 
 
 def fetch_general_ledger_detail(
@@ -1419,6 +1753,8 @@ def fetch_general_ledger_detail(
     minus credit) for the COA, same scope as Reports Trial Balance (pending and confirmed;
     includes TB-IMPORT book when summing all banks), plus categorized transaction net before
     period_start (optional bank filter on transactions). Period lines and ending balance follow.
+    Transactions with source trial_balance_opening are omitted here: they mirror TB for the
+    bank register only; counting them would duplicate the TB portion of beginning balance.
     Uncategorized (coa_id NULL) in a separate section when no chart account range filter.
 
     Returns list of dicts: coa_number, coa_name, beginning_balance, ending_balance,
@@ -1504,6 +1840,7 @@ def fetch_general_ledger_detail(
                   AND t.coa_id IS NOT NULL
                   AND t.date < %s
                   {_GL_LEDGER_STATUS_FILTER}
+                  {_GL_EXCLUDE_TB_OPENING}
                   {bank_sql}
                 GROUP BY t.coa_id
                 """,
@@ -1521,6 +1858,7 @@ def fetch_general_ledger_detail(
                 WHERE t.coa_id IN ({placeholders})
                   AND t.date >= %s AND t.date <= %s
                   {_GL_LEDGER_STATUS_FILTER}
+                  {_GL_EXCLUDE_TB_OPENING}
                   {bank_sql}
                 ORDER BY t.coa_id, t.date, t.created_at
                 """,
@@ -1635,6 +1973,338 @@ def fetch_general_ledger_detail(
             }
         )
 
+    return out
+
+
+def _ACTIVITY_TB_EXCLUDE() -> str:
+    """Omit transaction rows that mirror trial balance import (see General Ledger line list)."""
+    return " AND t.source IS DISTINCT FROM 'trial_balance_opening'::transaction_source_enum "
+
+
+def fetch_active_coa_list_ordered() -> list[dict[str, Any]]:
+    """Active chart lines: id (str), account_number, account_name; sorted by account_number."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text AS id, account_number, account_name
+                FROM chart_of_accounts
+                WHERE is_active = TRUE
+                ORDER BY account_number
+                """
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def fetch_coa_beginning_balances(period_start: date, coa_ids: list[str]) -> dict[str, float]:
+    """
+    Same beginning as General Ledger: trial_balance_entries (pending+confirmed) net per COA
+    plus transactions before period_start, all books (no register filter), excluding
+    trial_balance_opening transaction rows (avoids double-count with TE).
+    """
+    ids: list[str] = []
+    for x in coa_ids:
+        s = (x or "").strip()
+        if not s:
+            continue
+        try:
+            UUID(s)
+        except ValueError:
+            continue
+        ids.append(s)
+    if not ids:
+        return {}
+    ps = period_start
+    nids = [_coa_id_key(x) for x in ids if _coa_id_key(x)]
+    beg_map: dict[str, float] = {k: 0.0 for k in nids}
+    ph = ",".join(["%s::uuid"] * len(ids))
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT te.coa_id::text AS cid,
+                       COALESCE(SUM(te.debit_amount - te.credit_amount), 0) AS tb_net
+                FROM trial_balance_entries te
+                WHERE te.status IN ('pending', 'confirmed')
+                  AND te.coa_id IN ({ph})
+                GROUP BY te.coa_id
+                """,
+                list(ids),
+            )
+            for row in cur.fetchall():
+                ck = _coa_id_key(str(row["cid"]) if row.get("cid") is not None else "")
+                if ck:
+                    beg_map[ck] = _num(row["tb_net"])
+
+            cur.execute(
+                f"""
+                SELECT t.coa_id::text AS cid, COALESCE(SUM(t.debit_amount - t.credit_amount), 0) AS beg
+                FROM transactions t
+                WHERE t.coa_id IN ({ph})
+                  AND t.coa_id IS NOT NULL
+                  AND t.date < %s
+                  {_GL_LEDGER_STATUS_FILTER}
+                  {_GL_EXCLUDE_TB_OPENING}
+                GROUP BY t.coa_id
+                """,
+                [*ids, ps],
+            )
+            for row in cur.fetchall():
+                ck = _coa_id_key(str(row["cid"]) if row.get("cid") is not None else "")
+                if ck:
+                    beg_map[ck] = beg_map.get(ck, 0.0) + _num(row["beg"])
+    return beg_map
+
+
+def fetch_coa_opening_balance_uncategorized(period_start: date) -> float:
+    """Net of uncategorized rows (coa_id null) with date before period start; all books."""
+    ps = period_start
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT COALESCE(SUM(t.debit_amount - t.credit_amount), 0) AS beg
+                FROM transactions t
+                WHERE t.coa_id IS NULL
+                  AND t.date < %s
+                  {_GL_LEDGER_STATUS_FILTER}
+                """,
+                [ps],
+            )
+            row = cur.fetchone()
+            return _num(row["beg"]) if row else 0.0
+
+
+def merge_coa_activity_with_opening(
+    period_start: date,
+    act_rows: list[dict[str, Any]],
+    coas_ordered: list[dict[str, Any]],
+    open_map: dict[str, float],
+    beg_uncat: float,
+    include_uncategorized: bool,
+) -> list[dict[str, Any]]:
+    """
+    Prepend a synthetic opening row per classified COA (in chart order), then that COA’s
+    period lines. Optionally append uncategorized opening + uncat lines. Period rows are
+    sorted by date, created_at, id within each group.
+    """
+    from collections import defaultdict
+
+    def _as_ts(v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return str(v)
+
+    by_cid: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+    for r in act_rows:
+        raw_id = (r.get("coa_id") or "").strip()
+        key: str | None
+        if not raw_id:
+            key = None
+        else:
+            key = _coa_id_key(raw_id) or None
+        by_cid[key].append(r)
+    for k in by_cid:
+        by_cid[k].sort(
+            key=lambda r: (
+                (r.get("date") or ""),
+                _as_ts(r.get("created_at")),
+                (r.get("id") or ""),
+            )
+        )
+
+    ps = period_start
+    ps_s = ps.isoformat() if hasattr(ps, "isoformat") else str(ps)
+    out: list[dict[str, Any]] = []
+
+    for c in coas_ordered:
+        cid = _coa_id_key((c.get("id") or "").strip())
+        if not cid:
+            continue
+        n = (c.get("account_number") or "").strip()
+        name = (c.get("account_name") or "").strip()
+        o = float(open_map.get(cid, 0.0))
+        out.append(
+            {
+                "is_opening": True,
+                "id": "",
+                "date": ps_s,
+                "coa_id": cid,
+                "coa_number": n,
+                "coa_name": name,
+                "register_name": "",
+                "register_masked": "",
+                "register_type": "",
+                "bank_name": "",
+                "bank_account_id": "",
+                "source": "opening",
+                "status": "",
+                "payee": "",
+                "description": f"Opening balance (net, debit \u2212 credit): {o:,.2f}",
+                "debit": None,
+                "credit": None,
+                "posting_group_id": None,
+                "opening_net": o,
+                "import_batch_id": None,
+                "created_at": "",
+            }
+        )
+        out.extend(by_cid.get(cid, []))
+
+    if include_uncategorized:
+        out.append(
+            {
+                "is_opening": True,
+                "id": "",
+                "date": ps_s,
+                "coa_id": "",
+                "coa_number": "\u2014",
+                "coa_name": "Uncategorized (no chart line)",
+                "register_name": "",
+                "register_masked": "",
+                "register_type": "",
+                "bank_name": "",
+                "bank_account_id": "",
+                "source": "opening",
+                "status": "",
+                "payee": "",
+                "description": f"Opening balance (uncategorized, net): {float(beg_uncat):,.2f}",
+                "debit": None,
+                "credit": None,
+                "posting_group_id": None,
+                "opening_net": float(beg_uncat),
+                "import_batch_id": None,
+                "created_at": "",
+            }
+        )
+        out.extend(by_cid.get(None, []))
+
+    return out
+
+
+def fetch_coa_activity_report(
+    period_start: date,
+    period_end: date,
+    coa_ids: list[str],
+    *,
+    all_chart_accounts: bool = False,
+    include_uncategorized: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Transaction lines in the date range for the COA scope, **all books** (no register filter).
+    Classified and/or uncategorized. Omits `trial_balance_opening` in the line list; opening is
+    supplied separately (merge) to match General Ledger. Includes journal_entry, manual_register,
+    imports, etc. Adds coa_id, created_at, import_batch_id.
+    """
+    ps, pe = period_start, period_end
+    if ps > pe:
+        ps, pe = pe, ps
+
+    tb_ex = _ACTIVITY_TB_EXCLUDE()
+
+    ids: list[str] = []
+    if not all_chart_accounts:
+        ids = [(x or "").strip() for x in coa_ids if (x or "").strip()]
+        if not ids:
+            return []
+        for cid in ids:
+            try:
+                UUID(cid)
+            except ValueError:
+                return []
+
+    if all_chart_accounts and include_uncategorized:
+        join_coa = "LEFT JOIN chart_of_accounts c ON c.id = t.coa_id"
+        coa_sql = ""
+        params: list[Any] = [ps, pe]
+    elif all_chart_accounts:
+        join_coa = "INNER JOIN chart_of_accounts c ON c.id = t.coa_id"
+        coa_sql = ""
+        params = [ps, pe]
+    elif include_uncategorized:
+        join_coa = "LEFT JOIN chart_of_accounts c ON c.id = t.coa_id"
+        coa_sql = " AND (t.coa_id = ANY(%s::uuid[]) OR t.coa_id IS NULL) "
+        params = [ps, pe, ids]
+    else:
+        join_coa = "INNER JOIN chart_of_accounts c ON c.id = t.coa_id"
+        coa_sql = " AND t.coa_id = ANY(%s::uuid[]) "
+        params = [ps, pe, ids]
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    t.id::text AS id,
+                    t.coa_id::text AS coa_id,
+                    t.date,
+                    t.created_at,
+                    t.import_batch_id::text AS import_batch_id,
+                    t.payee,
+                    t.description,
+                    t.debit_amount,
+                    t.credit_amount,
+                    t.source::text AS source,
+                    t.status::text AS status,
+                    t.posting_group_id::text AS posting_group_id,
+                    t.bank_account_id::text AS bank_account_id,
+                    ba.account_name AS register_name,
+                    ba.account_type::text AS register_type,
+                    ba.account_number_masked AS register_masked,
+                    b.bank_name,
+                    c.account_number AS coa_number,
+                    c.account_name AS coa_name
+                FROM transactions t
+                JOIN bank_accounts ba ON ba.id = t.bank_account_id
+                JOIN banks b ON b.id = ba.bank_id
+                {join_coa}
+                WHERE t.date >= %s AND t.date <= %s
+                  AND t.status IN ('pending', 'cleared', 'flagged')
+                  {tb_ex}
+                  {coa_sql}
+                ORDER BY t.date ASC, t.created_at ASC, t.id::text
+                """,
+                params,
+            )
+            raw = cur.fetchall()
+
+    out: list[dict[str, Any]] = []
+    for row in raw:
+        d = row["date"]
+        ds = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        cat = row.get("created_at")
+        if cat is not None and hasattr(cat, "isoformat"):
+            cs = cat.isoformat()
+        else:
+            cs = ""
+        r_raw = (row.get("coa_id") or "").strip()
+        r_coa = _coa_id_key(r_raw) if r_raw else ""
+        out.append(
+            {
+                "is_opening": False,
+                "id": (row.get("id") or "").strip(),
+                "coa_id": r_coa,
+                "date": ds,
+                "coa_number": (row.get("coa_number") or "").strip(),
+                "coa_name": (row.get("coa_name") or "").strip(),
+                "register_name": (row.get("register_name") or "").strip(),
+                "register_masked": (row.get("register_masked") or "").strip(),
+                "register_type": (row.get("register_type") or "").strip(),
+                "bank_name": (row.get("bank_name") or "").strip(),
+                "bank_account_id": (row.get("bank_account_id") or "").strip(),
+                "source": (row.get("source") or "").strip(),
+                "status": (row.get("status") or "").strip(),
+                "payee": (row.get("payee") or "").strip(),
+                "description": (row.get("description") or "") or "",
+                "debit": _num(row["debit_amount"]),
+                "credit": _num(row["credit_amount"]),
+                "posting_group_id": (row.get("posting_group_id") or "") or None,
+                "import_batch_id": (row.get("import_batch_id") or "").strip() or None,
+                "created_at": cs,
+            }
+        )
     return out
 
 

@@ -20,6 +20,13 @@ _DATELIKE = re.compile(
     r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b"
 )
 
+# Checking/savings PDF text lines (Chase): transaction rows are often single-spaced so
+# split-on-multi-space yields one segment and the row was dropped. Parse M/D prefix + trailing amounts.
+_BANK_LINE_DATE_PREFIX = re.compile(r"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)$")
+_BANK_MONEY_TOKEN = re.compile(
+    r"(?<![\d.])(-?\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})(?!\d)"
+)
+
 
 def _normalize_cell(cell: Any) -> str:
     if cell is None:
@@ -102,6 +109,96 @@ def _rows_from_pdf_text(pdf: Any) -> list[list[str]]:
             if len(parts) >= 2:
                 rows.append(parts)
     return rows
+
+
+def _is_plausible_bank_amount_token(tok: str) -> bool:
+    """Avoid treating YYYY.MM-style numbers in narrative text as currency."""
+    s = re.sub(r"\s+", "", (tok or "").replace("$", "").replace(",", "").strip())
+    m = re.fullmatch(r"-?(\d+)\.(\d{2})", s)
+    if not m:
+        return False
+    whole_s, frac_s = m.group(1), m.group(2)
+    whole, frac = int(whole_s), int(frac_s)
+    if len(whole_s) == 4 and 1900 <= whole <= 2100 and frac <= 31:
+        return False
+    return True
+
+
+def _expand_bank_text_line_to_row(line: str) -> list[str] | None:
+    """
+    One-line transaction row: ``MM/DD description ... amount [balance]`` with only single spaces
+    (common for long Chase descriptions). Returns four cells when balance is present.
+    """
+    s = line.strip()
+    if len(s) < 6:
+        return None
+    m = _BANK_LINE_DATE_PREFIX.match(s)
+    if not m:
+        return None
+    date, rest = m.group(1), m.group(2).strip()
+    tokens = list(_BANK_MONEY_TOKEN.finditer(rest))
+    if not tokens:
+        return None
+    if any(not _is_plausible_bank_amount_token(t.group(1)) for t in tokens):
+        return None
+    if len(tokens) >= 2:
+        amt_m, bal_m = tokens[-2], tokens[-1]
+        desc = rest[: amt_m.start()].strip()
+        amt = amt_m.group(1).strip()
+        bal = bal_m.group(1).strip()
+    else:
+        t = tokens[-1]
+        desc = rest[: t.start()].strip()
+        amt = t.group(1).strip()
+        bal = ""
+    if not desc:
+        return None
+    return [date, desc, amt, bal]
+
+
+def _rows_from_bank_pdf_text(pdf: Any) -> list[list[str]]:
+    """
+    Like ``_rows_from_pdf_text`` but recover Chase-style lines that do not have multi-space column gaps.
+    """
+    rows: list[list[str]] = []
+    for page in pdf.pages:
+        text = page.extract_text(layout=True) or page.extract_text() or ""
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or len(line) < 4:
+                continue
+            parts = re.split(r"\s{2,}|\t+", line)
+            parts = [p.strip() for p in parts if p.strip()]
+            if len(parts) >= 2:
+                rows.append(parts)
+            else:
+                expanded = _expand_bank_text_line_to_row(parts[0] if parts else line)
+                if expanded:
+                    rows.append(expanded)
+    return rows
+
+
+def bank_statement_grid_from_pdf_bytes(data: bytes) -> list[list[str]]:
+    """
+    Extract a row grid from checking/savings-style PDFs (e.g. Chase).
+    Unlike credit cards, we do not require a CC-style header row: many bank tables use
+    "Date", "Description", "Amount" and would be discarded by the CC-only filter.
+    Prefer the highest-scoring embedded table; fall back to text-line splitting only if
+    pdfplumber finds no tables.
+    """
+    try:
+        import pdfplumber
+    except ImportError as e:
+        raise RuntimeError(
+            "PDF support requires pdfplumber. Install with: pip install pdfplumber"
+        ) from e
+
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        candidates = _tables_from_pdf_pages(pdf)
+        if candidates:
+            best = max(candidates, key=_score_table)
+            return _pad_table(best)
+        return _pad_table(_rows_from_bank_pdf_text(pdf))
 
 
 def credit_card_grid_from_pdf_bytes(data: bytes) -> list[list[str]]:

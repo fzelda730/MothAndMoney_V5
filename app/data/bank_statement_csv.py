@@ -47,16 +47,66 @@ def iter_bank_csv_rows(data: bytes) -> list[list[str]]:
     return list(csv.reader(text))
 
 
+_BANK_HEADER_MIN_SCORE = 5
+_BANK_HEADER_MIN_NONEMPTY_CELLS = 2
+
+
+def _bank_statement_header_row_score(hdr: list[str]) -> int:
+    """
+    Heuristic score for a row being a transaction table header (bank CSV or PDF text grid).
+    Chase-style PDFs prepend many lines before DATE / DESCRIPTION / AMOUNT / BALANCE.
+    """
+    nonempty = sum(1 for h in hdr if (h or "").strip())
+    if nonempty < _BANK_HEADER_MIN_NONEMPTY_CELLS:
+        return 0
+    blob = " ".join((h or "").lower() for h in hdr)
+    score = 0
+    if re.search(r"\b(date|posted|posting)\b", blob) or "trans date" in blob:
+        score += 3
+    if re.search(r"\b(description|payee|memo|narrative)\b", blob):
+        score += 3
+    if re.search(r"\b(amount|withdrawal|deposit|debit|credit)\b", blob):
+        score += 2
+    if "balance" in blob:
+        score += 1
+    if re.search(r"\b(type|dr/cr|debit/credit)\b", blob):
+        score += 1
+    return score
+
+
 def bank_statement_headers_from_grid(rows: list[list[str]]) -> tuple[list[str], int]:
-    """Return (header_cells, header_row_index). First non-empty row in first 40 lines wins."""
+    """
+    Return (header_cells, header_row_index) for the first 40 rows.
+    Prefer a row that looks like a transaction header (date + description + amount keywords);
+    otherwise fall back to the first non-empty row (plain CSV).
+    """
     if not rows:
         return [], 0
-    for i, row in enumerate(rows[:40]):
+    scan = rows[:40]
+    best_i: int | None = None
+    best_score = -1
+    first_nonempty: tuple[int, list[str]] | None = None
+
+    for i, row in enumerate(scan):
         if not row:
             continue
         hdr = [(c or "").strip() for c in row]
-        if any(hdr):
-            return hdr, i
+        if not any(hdr):
+            continue
+        if first_nonempty is None:
+            first_nonempty = (i, hdr)
+        sc = _bank_statement_header_row_score(hdr)
+        if sc >= _BANK_HEADER_MIN_SCORE and sc > best_score:
+            best_score = sc
+            best_i = i
+
+    if best_i is not None:
+        hdr = [(c or "").strip() for c in scan[best_i]]
+        return hdr, best_i
+
+    if first_nonempty is not None:
+        i, hdr = first_nonempty
+        return hdr, i
     return [], 0
 
 
@@ -83,6 +133,42 @@ def _cell(row: list[str], idx: int | None) -> str:
         return ""
     v = row[idx]
     return (v if v is not None else "").strip()
+
+
+def _looks_like_amount_cell(s: str) -> bool:
+    """True if the cell is a plain signed decimal amount (PDF/CSV money column)."""
+    t = (s or "").replace("$", "").replace(",", "").strip()
+    t = re.sub(r"\s+", "", t)
+    if not t:
+        return False
+    return bool(re.fullmatch(r"-?\d+(\.\d+)?", t))
+
+
+def _maybe_unmerge_leading_date_row(row: list[str], headers: list[str]) -> list[str]:
+    """
+    PDF text grids (e.g. Chase): header has DATE + DESCRIPTION + AMOUNT + BALANCE but a data row
+    can merge date and description (\"01/08 Monthly Service Fee\") so later columns shift.
+    Split the first cell so column indices align with the header.
+
+    Some extractions pad with a trailing empty cell (same length as headers); drop that pad when
+    rebuilding the row so we do not grow past len(headers).
+    """
+    if not row or not headers:
+        return row
+    nh = len(headers)
+    if nh < 3 or len(row) < 2:
+        return row
+    first = (row[0] or "").strip()
+    m = re.match(r"^(\d{1,2}/\d{1,2})\s+(.+)$", first)
+    if not m:
+        return row
+    if not _looks_like_amount_cell(row[1] or ""):
+        return row
+    lr = len(row)
+    tail = row[1:-1] if lr == nh and not (row[-1] or "").strip() else row[1:]
+    if lr == nh - 1 or (lr == nh and not (row[-1] or "").strip()):
+        return [m.group(1), m.group(2).strip(), *tail]
+    return row
 
 
 def suggest_bank_column_mapping(headers: list[str]) -> dict[str, str]:
@@ -156,6 +242,18 @@ def suggest_bank_column_mapping(headers: list[str]) -> dict[str, str]:
     return out
 
 
+_BALANCE_SUMMARY_SUBSTRINGS = ("beginning balance", "ending balance")
+
+
+def _row_is_balance_summary_line(row: list[str]) -> bool:
+    """
+    True if any cell in the row mentions beginning/ending balance (case-insensitive).
+    Used to skip statement summary rows that are not transactions.
+    """
+    blob = " ".join((c or "").lower() for c in row)
+    return any(s in blob for s in _BALANCE_SUMMARY_SUBSTRINGS)
+
+
 def _display_type_from_row(amount: float, type_cell: str) -> str:
     t = (type_cell or "").strip().upper()
     if "CREDIT" in t or "DEP" in t or "DEPOSIT" in t:
@@ -176,10 +274,13 @@ def build_bank_statement_preview_rows(
     mapping: dict[str, str],
     not_used: str = BANK_COLUMN_NOT_USED,
     max_rows: int = 3,
+    *,
+    grid_rows: list[list[str]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     First max_rows data rows after header, using mapping (header names -> indices).
     Each dict: date, type (CREDIT|DEBIT), payee, amount (float), coa.
+    Pass ``grid_rows`` when the source is a PDF grid (same as full import); otherwise CSV bytes are read.
     """
     i_date = _col_index(headers, mapping.get(BANK_FIELD_DATE), not_used)
     i_tt = _col_index(headers, mapping.get(BANK_FIELD_TRANSACTION_TYPE), not_used)
@@ -188,12 +289,16 @@ def build_bank_statement_preview_rows(
     i_coa = _col_index(headers, mapping.get(BANK_FIELD_CHART_OF_ACCOUNT), not_used)
     i_desc = _col_index(headers, mapping.get(BANK_FIELD_DESCRIPTION), not_used)
 
-    rows = iter_bank_csv_rows(data)
+    rows = grid_rows if grid_rows is not None else iter_bank_csv_rows(data)
     out: list[dict[str, Any]] = []
     for row in rows[header_idx + 1 :]:
         if len(out) >= max_rows:
             break
         if not row or not any((c or "").strip() for c in row):
+            continue
+        if grid_rows is not None:
+            row = _maybe_unmerge_leading_date_row(list(row), headers)
+        if _row_is_balance_summary_line(row):
             continue
         payee = _cell(row, i_payee)
         if not payee and i_desc is not None:
@@ -248,6 +353,10 @@ def parse_bank_statement_csv_all_rows(
         if len(out) >= max_rows:
             break
         if not row or not any((c or "").strip() for c in row):
+            continue
+        if grid_rows is not None:
+            row = _maybe_unmerge_leading_date_row(list(row), headers)
+        if _row_is_balance_summary_line(row):
             continue
         payee = _cell(row, i_payee)
         desc = _cell(row, i_desc) if i_desc is not None else ""
@@ -307,6 +416,8 @@ def unique_payee_candidates_from_bytes(
         if n_scanned >= max_data_rows:
             break
         if not row or not any((c or "").strip() for c in row):
+            continue
+        if _row_is_balance_summary_line(row):
             continue
         n_scanned += 1
         payee = _cell(row, i_payee)

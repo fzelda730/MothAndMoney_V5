@@ -45,6 +45,10 @@ _CC_HEADER_MIN_CELLS = 3
 _CC_HEADER_CELL_MAX_LEN = 56
 _CC_HEADER_AVG_MAX_LEN = 40
 
+# Prefer a real transaction table header (Chase PDFs prepend many rows; naive "first plausible" picked CHASE branding).
+_CC_TRANSACTION_HEADER_MIN_SCORE = 6
+_CC_HEADER_SCAN_MAX = 120
+
 # Parse merged PDF text like "Trans Date Post Date Description" + "Amount" (two cells).
 _MERGED_HEADER_LABEL_ORDER = (
     "Trans Date",
@@ -68,6 +72,27 @@ def _cell_looks_like_money_amount(c: str) -> bool:
 
 def _nonempty_cells(row: list[str]) -> list[str]:
     return [(c or "").strip() for c in row if (c or "").strip()]
+
+
+def expand_chase_cc_pdf_header_row(row: list[str]) -> list[str] | None:
+    """
+    Chase card PDF table extraction often yields::
+        ['Transaction', 'Merchant Name or Transaction Description $ Amount', '', ...]
+    Split the second cell into description + Amount for mapping and preview.
+    """
+    nonempty = [(c or "").strip() for c in row if (c or "").strip()]
+    if len(nonempty) < 2:
+        return None
+    c0, c1 = nonempty[0], nonempty[1]
+    if c0.lower() != "transaction":
+        return None
+    m = re.match(r"(?is)^(.+?)\s*\$\s*amount\s*$", c1.strip())
+    if not m:
+        return None
+    desc = (m.group(1) or "").strip()
+    if not desc:
+        return None
+    return [c0, desc, "Amount"]
 
 
 def expand_merged_cc_header_row(row: list[str]) -> list[str] | None:
@@ -120,6 +145,8 @@ def row_is_plausible_cc_column_header(row: list[str]) -> bool:
 
 def row_looks_like_cc_statement_header(row: list[str]) -> bool:
     """True if row resembles a credit card transaction table header (e.g. Capital One PDFs)."""
+    if expand_chase_cc_pdf_header_row(row) is not None:
+        return row_is_plausible_cc_column_header(row)
     if not row_is_plausible_cc_column_header(row):
         return False
     cells = _nonempty_cells(row)
@@ -130,6 +157,43 @@ def row_looks_like_cc_statement_header(row: list[str]) -> bool:
     if len(cells) >= _CC_HEADER_MIN_CELLS:
         return hits >= 2
     return False
+
+
+def _cc_transaction_header_score(hdr: list[str]) -> int:
+    """Heuristic score for a row being the posted-transactions table header (PDF or CSV)."""
+    nonempty_hdr = [(h or "").strip() for h in hdr if (h or "").strip()]
+    if len(nonempty_hdr) < 2:
+        return 0
+    blob = " ".join(h.lower() for h in nonempty_hdr)
+    score = 0
+    if re.search(r"\b(trans\s*date|post(ing)?\s*date|transaction\s*date)\b", blob):
+        score += 4
+    elif (
+        len(nonempty_hdr) >= 3
+        and nonempty_hdr[0].lower() == "transaction"
+        and nonempty_hdr[-1].lower() == "amount"
+    ):
+        score += 4
+    elif re.search(r"\bdate\b", blob):
+        score += 2
+    if re.search(r"\b(description|merchant|memo|payee|narrative)\b", blob) or "merchant name" in blob:
+        score += 3
+    if re.search(r"\bamount\b", blob) or re.search(r"\$\s*amount\b", blob):
+        score += 2
+    if re.search(r"\b(debit|credit|dr/cr|type)\b", blob):
+        score += 1
+    return score
+
+
+def _normalize_cc_header_row(row: list[str]) -> list[str]:
+    """Apply issuer-specific merged-header expansion; otherwise strip cells."""
+    ch = expand_chase_cc_pdf_header_row(row)
+    if ch is not None:
+        return ch
+    cap = expand_merged_cc_header_row(row)
+    if cap is not None:
+        return cap
+    return [(c or "").strip() for c in row]
 
 
 def _parse_money(cell: str) -> float:
@@ -154,8 +218,26 @@ def iter_cc_csv_rows(data: bytes) -> list[list[str]]:
 def detect_cc_header_row(rows: list[list[str]]) -> tuple[list[str], int]:
     if not rows:
         return [], 0
-    scan = min(80, len(rows))
+    scan = min(_CC_HEADER_SCAN_MAX, len(rows))
+    best_i: int | None = None
+    best_hdr: list[str] | None = None
+    best_score = -1
     for i in range(scan):
+        row = rows[i]
+        if not row or not any((c or "").strip() for c in row):
+            continue
+        norm = _normalize_cc_header_row(row)
+        sc = _cc_transaction_header_score(norm)
+        if sc > best_score:
+            best_score = sc
+            best_i = i
+            best_hdr = norm
+
+    if best_i is not None and best_hdr is not None and best_score >= _CC_TRANSACTION_HEADER_MIN_SCORE:
+        return best_hdr, best_i
+
+    scan_legacy = min(80, len(rows))
+    for i in range(scan_legacy):
         row = rows[i]
         if not row:
             continue
@@ -163,6 +245,9 @@ def detect_cc_header_row(rows: list[list[str]]) -> tuple[list[str], int]:
         if not any(hdr):
             continue
         if row_looks_like_cc_statement_header(row):
+            expanded = expand_chase_cc_pdf_header_row(row)
+            if expanded is not None:
+                return expanded, i
             expanded = expand_merged_cc_header_row(row)
             if expanded is not None:
                 return expanded, i
@@ -171,10 +256,14 @@ def detect_cc_header_row(rows: list[list[str]]) -> tuple[list[str], int]:
         if not row:
             continue
         hdr = [(c or "").strip() for c in row]
-        if any(hdr) and row_is_plausible_cc_column_header(row):
-            money = sum(1 for c in hdr if c and _cell_looks_like_money_amount(c))
-            if money > 1:
-                continue
+        if not any(hdr) or not row_is_plausible_cc_column_header(row):
+            continue
+        money = sum(1 for c in hdr if c and _cell_looks_like_money_amount(c))
+        if money > 1:
+            continue
+        joined = " ".join((h or "").lower() for h in hdr if h)
+        hits = sum(1 for kw in _CC_STATEMENT_HEADER_KEYWORDS if kw in joined)
+        if hits >= 2 or _cc_transaction_header_score(hdr) >= 4:
             return hdr, i
     return [], 0
 
@@ -202,6 +291,12 @@ def _cell(row: list[str], idx: int | None) -> str:
     return (v if v is not None else "").strip()
 
 
+def _cell_looks_like_cc_statement_date(cell: str) -> bool:
+    """US-style statement posting dates (Chase, many issuers). Skips APR / summary rows after the txn table."""
+    s = (cell or "").strip()
+    return bool(re.match(r"^\d{1,2}/\d{1,2}(?:/\d{2,4})?$", s))
+
+
 def suggest_credit_card_column_mapping(headers: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
 
@@ -222,6 +317,11 @@ def suggest_credit_card_column_mapping(headers: list[str]) -> dict[str, str]:
         ):
             out[CC_FIELD_DATE] = norm(h)
 
+    # Chase PDF: first column title is "Transaction" (transaction date); last column is "Amount".
+    if CC_FIELD_DATE not in out and len(headers) >= 3:
+        if (headers[0] or "").strip().lower() == "transaction" and (headers[-1] or "").strip().lower() == "amount":
+            out[CC_FIELD_DATE] = norm(headers[0])
+
     for h in headers:
         l = low(h)
         if CC_FIELD_TRANSACTION_TYPE not in out and (
@@ -237,6 +337,8 @@ def suggest_credit_card_column_mapping(headers: list[str]) -> dict[str, str]:
         if CC_FIELD_PAYEE not in out and (
             l in ("description", "payee", "merchant", "narrative", "name", "vendor")
             or "memo" in l
+            or "merchant" in l
+            or ("description" in l and "transaction" in l)
         ):
             out[CC_FIELD_PAYEE] = norm(h)
 
@@ -304,6 +406,8 @@ def build_cc_preview_rows(
             break
         if not row or not any((c or "").strip() for c in row):
             continue
+        if i_date is not None and not _cell_looks_like_cc_statement_date(_cell(row, i_date)):
+            continue
         payee = _cell(row, i_payee)
         desc = _cell(row, i_desc) if i_desc is not None else ""
         if not payee and desc:
@@ -363,6 +467,8 @@ def parse_credit_card_csv_all_rows(
             break
         if not row or not any((c or "").strip() for c in row):
             continue
+        if i_date is not None and not _cell_looks_like_cc_statement_date(_cell(row, i_date)):
+            continue
         payee = _cell(row, i_payee)
         desc = _cell(row, i_desc) if i_desc is not None else ""
         if not payee and desc:
@@ -415,6 +521,7 @@ def unique_payee_candidates_from_bytes(
 ) -> list[tuple[str, str]]:
     i_payee = _col_index(headers, mapping.get(CC_FIELD_PAYEE), not_used)
     i_desc = _col_index(headers, mapping.get(CC_FIELD_DESCRIPTION), not_used)
+    i_date_m = _col_index(headers, mapping.get(CC_FIELD_DATE), not_used)
     if i_payee is None and i_desc is None:
         return []
 
@@ -430,6 +537,8 @@ def unique_payee_candidates_from_bytes(
         if n_scanned >= max_data_rows:
             break
         if not row or not any((c or "").strip() for c in row):
+            continue
+        if i_date_m is not None and not _cell_looks_like_cc_statement_date(_cell(row, i_date_m)):
             continue
         n_scanned += 1
         payee = _cell(row, i_payee)

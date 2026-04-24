@@ -73,6 +73,13 @@ def _acct_id_for_label(label: str):
     return None
 
 
+def _acct_row(account_id: str) -> dict:
+    for a in BANK_ACCOUNTS:
+        if a.get("id") == account_id:
+            return a
+    return {}
+
+
 def _format_ledger_statement_date(d) -> str:
     if d is None:
         return "—"
@@ -132,6 +139,8 @@ selected_account = st.selectbox(
     label_visibility="collapsed",
 )
 aid = _acct_id_for_label(selected_account)
+ar = _acct_row(aid)
+acct_type = (ar.get("account_type") or "").lower()
 pv = st.session_state.get("ledger_import_preview")
 if pv and pv.get("aid") != aid:
     st.session_state.pop("ledger_import_preview", None)
@@ -229,7 +238,11 @@ else:
 st.html("<div style='height:1.5rem'></div>")
 
 with st.expander("Payee rules for this account", expanded=False):
-    if not use_sample_data() and not payee_rules_schema_ready():
+    if acct_type == "journal":
+        st.caption(
+            "Payee rules apply to statement imports only. Journal registers use **New entry** for manual GL lines."
+        )
+    elif not use_sample_data() and not payee_rules_schema_ready():
         st.warning(
             "This PostgreSQL database still uses the old payee-rules layout (no `bank_account_id` on "
             "`payee_rules`). Apply the migration once, then refresh this page.\n\n"
@@ -328,155 +341,155 @@ with st.expander("Payee rules for this account", expanded=False):
                 st.rerun()
 
 # ── Upload zone + Parsing template ───────────────────────────────────────────
-def _acct_row(account_id: str):
-    for a in BANK_ACCOUNTS:
-        if a.get("id") == account_id:
-            return a
-    return None
-
-
-ar = _acct_row(aid) or {}
-acct_type = (ar.get("account_type") or "").lower()
-if acct_type in ("checking", "savings"):
-    allowed_templates = [t for t in IMPORT_TEMPLATES if (t.get("type") or "") == "bank_statement"]
-elif acct_type == "credit_card":
-    allowed_templates = [t for t in IMPORT_TEMPLATES if (t.get("type") or "") == "credit_card"]
+if acct_type == "journal":
+    st.markdown("##### Statement import")
+    st.info(
+        "This register is for **manual journal entries** only. Statement CSV/PDF import is not used here. "
+        "Leave **Ledger COA** unset on this book in **Bank & card accounts** so each line posts once to the "
+        "chart account you choose."
+    )
+    st.page_link("pages/10_New_Entry.py", label="New journal entry", icon="➕")
 else:
-    allowed_templates = []
-
-# Template column first so `ledger_selected_template_id` is set before "Process File" runs.
-col_template, col_upload = st.columns([1, 1.5], gap="large")
-
-with col_template:
-    st.html("""
-    <div class="mm-card-low" style="height:100%;">
-        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
-            <span class="material-symbols-outlined" style="font-size:1.25rem;color:#154212;">
-                copy_all
-            </span>
-            <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1rem;margin:0;">
-                Parsing Template
-            </h4>
-        </div>
-        <p style="font-size:0.75rem;color:#636262;margin-bottom:1rem;">
-            Only templates that match this account type are listed. This selection is used when you process a CSV or PDF.
-        </p>
-    """)
-
-    if not allowed_templates:
-        st.caption("No templates available for this account type.")
-        st.session_state["ledger_selected_template_id"] = ""
+    if acct_type in ("checking", "savings"):
+        allowed_templates = [t for t in IMPORT_TEMPLATES if (t.get("type") or "") == "bank_statement"]
+    elif acct_type == "credit_card":
+        allowed_templates = [t for t in IMPORT_TEMPLATES if (t.get("type") or "") == "credit_card"]
     else:
-        names = [t["name"] for t in allowed_templates]
-        default_name = names[0]
-        if pv and pv.get("aid") == aid:
-            prev_tid = (pv.get("template_id") or "").strip()
-            for t in allowed_templates:
-                if (t.get("id") or "").strip() == prev_tid:
-                    default_name = t["name"]
-                    break
-        ix = names.index(default_name) if default_name in names else 0
-        pick = st.selectbox(
-            "Import template",
-            options=names,
-            index=ix,
-            key=f"ledger_import_template_name_{aid}",
-            label_visibility="visible",
-        )
-        sel = next(t for t in allowed_templates if t["name"] == pick)
-        st.session_state["ledger_selected_template_id"] = sel["id"]
+        allowed_templates = []
 
-    st.html("""
-    </div>
-    """)
+    # Template column first so `ledger_selected_template_id` is set before "Process File" runs.
+    col_template, col_upload = st.columns([1, 1.5], gap="large")
 
-    c_new, _ = st.columns(2)
-    with c_new:
-        if st.button("+ Create New Template", key="new_template"):
-            if acct_type == "credit_card":
-                st.switch_page("pages/5_Credit_Card_Config.py")
-            else:
-                st.switch_page("pages/4_Bank_Statement_Template.py")
+    with col_template:
+        st.html("""
+        <div class="mm-card-low" style="height:100%;">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                <span class="material-symbols-outlined" style="font-size:1.25rem;color:#154212;">
+                    copy_all
+                </span>
+                <h4 style="font-family:'Manrope',sans-serif;font-weight:700;font-size:1rem;margin:0;">
+                    Parsing Template
+                </h4>
+            </div>
+            <p style="font-size:0.75rem;color:#636262;margin-bottom:1rem;">
+                Only templates that match this account type are listed. This selection is used when you process a CSV or PDF.
+            </p>
+        """)
 
-with col_upload:
-    _ul_nonce = int(st.session_state.get(f"ledger_upload_nonce_{aid}") or 0)
-    uploaded = st.file_uploader(
-        "Upload Bank or Credit Card Statement",
-        type=["csv", "pdf", "ofx"],
-        help="CSV or PDF (same column mapping as your template; PDF uses text/table extraction). "
-        "OFX is not supported yet.",
-        label_visibility="visible",
-        key=f"ledger_statement_upload_{aid}_{_ul_nonce}",
-    )
+        if not allowed_templates:
+            st.caption("No templates available for this account type.")
+            st.session_state["ledger_selected_template_id"] = ""
+        else:
+            names = [t["name"] for t in allowed_templates]
+            default_name = names[0]
+            if pv and pv.get("aid") == aid:
+                prev_tid = (pv.get("template_id") or "").strip()
+                for t in allowed_templates:
+                    if (t.get("id") or "").strip() == prev_tid:
+                        default_name = t["name"]
+                        break
+            ix = names.index(default_name) if default_name in names else 0
+            pick = st.selectbox(
+                "Import template",
+                options=names,
+                index=ix,
+                key=f"ledger_import_template_name_{aid}",
+                label_visibility="visible",
+            )
+            sel = next(t for t in allowed_templates if t["name"] == pick)
+            st.session_state["ledger_selected_template_id"] = sel["id"]
 
-    st.html("<div style='height:0.75rem'></div>")
+        st.html("""
+        </div>
+        """)
 
-    col_start, col_end = st.columns(2, gap="medium")
-    with col_start:
-        start_date = st.date_input(
-            "Start Date",
-            value=date.today().replace(day=1),
-            label_visibility="visible",
-        )
-    with col_end:
-        end_date = st.date_input(
-            "End Date",
-            value=date.today(),
-            label_visibility="visible",
-        )
-
-    stmt_ending_balance = st.number_input(
-        "Bank statement ending balance",
-        value=0.0,
-        step=0.01,
-        format="%.2f",
-        help="Enter the ending balance exactly as shown on this bank or card statement. "
-        "It must match **Calculated ending** in the balance summary (included rows only) or commit is blocked.",
-        key=f"ledger_stmt_ending_{aid}",
-    )
-
-    if uploaded:
-        if st.button("Process File", type="primary"):
-            fname = (uploaded.name or "").lower()
-            if fname.endswith(".ofx"):
-                st.warning(
-                    "OFX import is not implemented yet. Export your statement as CSV or PDF, or use a CSV download "
-                    "from your bank."
-                )
-            elif not fname.endswith(".csv") and not fname.endswith(".pdf"):
-                st.warning("Please upload a .csv or .pdf file for import.")
-            elif start_date > end_date:
-                st.error("Start date must be on or before end date.")
-            elif not allowed_templates:
-                st.error("No import templates match this account type. Create one under Bank Statement Template.")
-            else:
-                tid = st.session_state.get("ledger_selected_template_id")
-                if not tid:
-                    st.error("Select an import template in the card on the left.")
+        c_new, _ = st.columns(2)
+        with c_new:
+            if st.button("+ Create New Template", key="new_template"):
+                if acct_type == "credit_card":
+                    st.switch_page("pages/5_Credit_Card_Config.py")
                 else:
-                    spin = "Parsing PDF…" if fname.endswith(".pdf") else "Parsing CSV…"
-                    with st.spinner(spin):
-                        rows, err = preview_ledger_csv_import(
-                            aid,
-                            tid,
-                            uploaded.getvalue(),
-                            start_date,
-                            end_date,
-                            filename=uploaded.name or "upload.csv",
-                        )
-                    if err:
-                        st.error(err)
+                    st.switch_page("pages/4_Bank_Statement_Template.py")
+
+    with col_upload:
+        _ul_nonce = int(st.session_state.get(f"ledger_upload_nonce_{aid}") or 0)
+        uploaded = st.file_uploader(
+            "Upload Bank or Credit Card Statement",
+            type=["csv", "pdf", "ofx"],
+            help="CSV or PDF (same column mapping as your template; PDF uses text/table extraction). "
+            "OFX is not supported yet.",
+            label_visibility="visible",
+            key=f"ledger_statement_upload_{aid}_{_ul_nonce}",
+        )
+
+        st.html("<div style='height:0.75rem'></div>")
+
+        col_start, col_end = st.columns(2, gap="medium")
+        with col_start:
+            start_date = st.date_input(
+                "Start Date",
+                value=date.today().replace(day=1),
+                label_visibility="visible",
+            )
+        with col_end:
+            end_date = st.date_input(
+                "End Date",
+                value=date.today(),
+                label_visibility="visible",
+            )
+
+        stmt_ending_balance = st.number_input(
+            "Bank statement ending balance",
+            value=0.0,
+            step=0.01,
+            format="%.2f",
+            help="Enter the ending balance exactly as shown on this bank or card statement. "
+            "It must match **Calculated ending** in the balance summary (included rows only) or commit is blocked.",
+            key=f"ledger_stmt_ending_{aid}",
+        )
+
+        if uploaded:
+            if st.button("Process File", type="primary"):
+                fname = (uploaded.name or "").lower()
+                if fname.endswith(".ofx"):
+                    st.warning(
+                        "OFX import is not implemented yet. Export your statement as CSV or PDF, or use a CSV download "
+                        "from your bank."
+                    )
+                elif not fname.endswith(".csv") and not fname.endswith(".pdf"):
+                    st.warning("Please upload a .csv or .pdf file for import.")
+                elif start_date > end_date:
+                    st.error("Start date must be on or before end date.")
+                elif not allowed_templates:
+                    st.error("No import templates match this account type. Create one under Bank Statement Template.")
+                else:
+                    tid = st.session_state.get("ledger_selected_template_id")
+                    if not tid:
+                        st.error("Select an import template in the card on the left.")
                     else:
-                        st.session_state["ledger_import_preview"] = {
-                            "aid": aid,
-                            "rows": rows,
-                            "template_id": tid,
-                            "filename": uploaded.name or "upload.csv",
-                            "start": start_date,
-                            "end": end_date,
-                        }
-                        st.success(f"Loaded {len(rows)} row(s). Review and edit chart accounts below, then commit.")
-                        st.rerun()
+                        spin = "Parsing PDF…" if fname.endswith(".pdf") else "Parsing CSV…"
+                        with st.spinner(spin):
+                            rows, err = preview_ledger_csv_import(
+                                aid,
+                                tid,
+                                uploaded.getvalue(),
+                                start_date,
+                                end_date,
+                                filename=uploaded.name or "upload.csv",
+                            )
+                        if err:
+                            st.error(err)
+                        else:
+                            st.session_state["ledger_import_preview"] = {
+                                "aid": aid,
+                                "rows": rows,
+                                "template_id": tid,
+                                "filename": uploaded.name or "upload.csv",
+                                "start": start_date,
+                                "end": end_date,
+                            }
+                            st.success(f"Loaded {len(rows)} row(s). Review and edit chart accounts below, then commit.")
+                            st.rerun()
 
 st.html("<div style='height:2rem'></div>")
 
@@ -607,7 +620,10 @@ if pv and pv.get("aid") == aid and pv.get("rows"):
                     beg_book = float(s["ending_balance"])
                     calc_end = beg_book - deb_imp + crd_imp
                     rc = round(calc_end, 2)
-                    rs = round(float(stmt_ending_balance), 2)
+                    rs = round(
+                        float(st.session_state.get(f"ledger_stmt_ending_{aid}", 0) or 0),
+                        2,
+                    )
                     if rc != rs:
                         st.error(
                             f"Statement ending **${rs:,.2f}** does not match calculated ending "

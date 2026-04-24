@@ -98,7 +98,7 @@ def render_sidebar(_active_page: str = "") -> None:
             _streamlit_page_url("New_Entry"),
             type="primary",
             width="stretch",
-            help="Add a chart of account or (later) a journal entry — opens in a new browser tab",
+            help="Chart of account, journal entry, or register transaction — opens in a new browser tab",
         )
         st.markdown("</div>", unsafe_allow_html=True)
         st.html("""<div class="mm-sidebar-divider" style="margin-top:1rem;"></div>""")

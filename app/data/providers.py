@@ -33,10 +33,10 @@ def bank_accounts():
     if use_sample_data():
         from data.sample_data import BANK_ACCOUNTS
 
-        return BANK_ACCOUNTS
+        return _enrich_bank_accounts_chart_ending([dict(a) for a in BANK_ACCOUNTS])
     from db import queries
 
-    return queries.fetch_bank_accounts()
+    return _enrich_bank_accounts_chart_ending(queries.fetch_bank_accounts())
 
 
 def studio_profile():
@@ -63,7 +63,22 @@ def dashboard_stats():
         return DASHBOARD_STATS
     from db import queries
 
-    return queries.fetch_dashboard_stats()
+    base = queries.fetch_dashboard_stats()
+    accts = bank_accounts()
+
+    def _cohesive_ending(a: dict[str, Any]) -> float:
+        c = a.get("chart_ending_balance")
+        if c is not None:
+            return float(c)
+        return float(a.get("ending_balance") or 0)
+
+    base["total_portfolio_value"] = sum(_cohesive_ending(a) for a in accts)
+    base["available_liquidity"] = sum(
+        _cohesive_ending(a)
+        for a in accts
+        if (a.get("account_type") or "") in ("checking", "savings", "cash")
+    )
+    return base
 
 
 def tax_provision():
@@ -387,6 +402,100 @@ def general_ledger_report(
     )
 
 
+def coa_activity_report(
+    period_start: date,
+    period_end: date,
+    coa_ids: list[str],
+    *,
+    all_chart_accounts: bool = False,
+    include_uncategorized: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    COA activity: all books, beginning balance row(s) + period lines. Period lines
+    match General Ledger (no trial_balance_opening dupes; opening from TB + pre-period).
+    """
+    if use_sample_data():
+        return []
+    from db import queries
+
+    coas_order: list[dict[str, Any]] = []
+    if all_chart_accounts:
+        coas_order = queries.fetch_active_coa_list_ordered()
+    else:
+        wanted = {(x or "").strip() for x in coa_ids if (x or "").strip()}
+        for row in queries.fetch_active_coa_list_ordered():
+            rid = (row.get("id") or "").strip()
+            if rid in wanted:
+                coas_order.append(row)
+        if not coas_order and not include_uncategorized:
+            return []
+    cids_beg = [str(c["id"]) for c in coas_order] if coas_order else []
+    open_map = (
+        queries.fetch_coa_beginning_balances(period_start, cids_beg) if cids_beg else {}
+    )
+    beg_u = (
+        queries.fetch_coa_opening_balance_uncategorized(period_start)
+        if include_uncategorized
+        else 0.0
+    )
+    act = queries.fetch_coa_activity_report(
+        period_start,
+        period_end,
+        coa_ids,
+        all_chart_accounts=all_chart_accounts,
+        include_uncategorized=include_uncategorized,
+    )
+    return queries.merge_coa_activity_with_opening(
+        period_start, act, coas_order, open_map, beg_u, include_uncategorized
+    )
+
+
+_GL_DASHBOARD_EPOCH_START = date(2000, 1, 1)
+
+
+@st.cache_data(ttl=120)
+def _chart_ending_by_coa_number_cached(as_of_iso: str) -> dict[str, float]:
+    """COA account_number -> GL ending balance (all books), for Dashboard enrichment."""
+    as_of = date.fromisoformat(as_of_iso)
+    blocks = general_ledger_report(
+        _GL_DASHBOARD_EPOCH_START, as_of, None, None, None
+    )
+    by_num: dict[str, float] = {}
+    for b in blocks:
+        num = (b.get("coa_number") or "").strip()
+        if num and num != "—":
+            by_num[num] = float(b.get("ending_balance") or 0)
+    return by_num
+
+
+def _enrich_bank_accounts_chart_ending(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    When bank_accounts.ledger_coa_id is set, add chart_ending_balance = General Ledger
+    ending for that COA (all books, through today) so the Dashboard matches TB/GL,
+    including journal activity. ending_balance stays the register total from
+    v_account_balances (statement / import reconcile on Ledger).
+    """
+    if not rows:
+        return rows
+    if not any((r.get("ledger_coa_number") or "").strip() for r in rows):
+        for r in rows:
+            r.setdefault("chart_ending_balance", None)
+        return rows
+
+    by_num = _chart_ending_by_coa_number_cached(date.today().isoformat())
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        r2 = dict(r)
+        led = (r2.get("ledger_coa_number") or "").strip()
+        if led and led in by_num:
+            r2["chart_ending_balance"] = round(by_num[led], 2)
+        else:
+            r2["chart_ending_balance"] = None
+        out.append(r2)
+    return out
+
+
 _BS_COA_TYPES = frozenset({"asset", "liability", "equity"})
 
 
@@ -696,6 +805,21 @@ def trial_balance_gl_report(
     }
 
 
+def journal_entries_report(
+    period_start: date,
+    period_end: date,
+    journal_book_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Posted manual journal entries (grouped by posting_group_id). Empty in demo mode."""
+    if use_sample_data():
+        return []
+    from db import queries
+
+    return queries.fetch_journal_entries_report(
+        period_start, period_end, journal_book_id
+    )
+
+
 def trial_balance_import():
     if use_sample_data():
         from data.sample_data import TRIAL_BALANCE_IMPORT_PREVIEW, TRIAL_BALANCE_TOTALS
@@ -969,6 +1093,63 @@ def save_bank_account_to_db(
         return aid, None
     except Exception as e:
         return None, str(e)
+
+
+def save_journal_entry_to_db(
+    *,
+    bank_account_id: str,
+    entry_date: date,
+    reference: str,
+    memo: str | None,
+    lines: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """
+    Post a balanced manual journal entry. Returns (posting_group_id, error_message).
+    """
+    if use_sample_data():
+        return None, "Set USE_SAMPLE_DATA=false in app/.env to post journal entries in PostgreSQL."
+    from db import queries
+
+    if not isinstance(entry_date, date):
+        return None, "Invalid entry date."
+    return queries.insert_journal_entry(
+        bank_account_id=bank_account_id,
+        entry_date=entry_date,
+        reference=reference,
+        memo=memo,
+        lines=lines,
+    )
+
+
+def save_register_transaction_to_db(
+    *,
+    bank_account_id: str,
+    entry_date: date,
+    payee: str,
+    description: str | None,
+    coa_id: str,
+    debit_amount: float,
+    credit_amount: float,
+) -> tuple[str | None, str | None]:
+    """
+    Post a single manual line on a bank register (not the journal book).
+    Returns (transaction_id, error_message).
+    """
+    if use_sample_data():
+        return None, "Set USE_SAMPLE_DATA=false in app/.env to post register transactions in PostgreSQL."
+    from db import queries
+
+    if not isinstance(entry_date, date):
+        return None, "Invalid entry date."
+    return queries.insert_manual_register_transaction(
+        bank_account_id=bank_account_id,
+        entry_date=entry_date,
+        payee=payee,
+        description=description,
+        coa_id=coa_id,
+        debit_amount=debit_amount,
+        credit_amount=credit_amount,
+    )
 
 
 def update_bank_account_ledger_coa_in_db(

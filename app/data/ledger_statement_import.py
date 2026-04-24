@@ -14,10 +14,15 @@ from data.credit_card_statement_csv import parse_credit_card_csv_all_rows
 
 def extract_statement_grid_from_pdf(_template_type: str, file_bytes: bytes) -> list[list[str]]:
     """
-    Turn a statement PDF into a row/column grid (pdfplumber), using the same heuristics as
-    Credit Card Config. Works for typical credit-card and many bank PDFs with embedded tables.
-    (_template_type reserved for future issuer-specific extractors.)
+    Turn a statement PDF into a row/column grid (pdfplumber).
+    Bank statement PDFs use embedded tables even when headers are not CC-shaped; credit card
+    PDFs keep the stricter table-vs-text logic from Credit Card Config.
     """
+    t = (_template_type or "").strip().lower()
+    if t == "bank_statement":
+        from data.credit_card_statement_pdf import bank_statement_grid_from_pdf_bytes
+
+        return bank_statement_grid_from_pdf_bytes(file_bytes)
     from data.credit_card_statement_pdf import credit_card_grid_from_pdf_bytes
 
     return credit_card_grid_from_pdf_bytes(file_bytes)
@@ -27,11 +32,27 @@ def parse_date_cell(date_raw: str, *, default_year: int | None = None) -> date |
     """
     Best-effort parse for common bank/CC export formats, including Capital One PDF-style
     month names and yearless transaction dates (year from statement range via default_year).
+    Chase checking PDFs often merge date + description in one cell (e.g. "01/08 Monthly Service Fee").
     """
     s = (date_raw or "").strip()
     if not s:
         return None
     s = re.sub(r"\s+", " ", s)
+    # Leading M/D or M/D/Y (or YY/YYYY) before more text — common on Chase text-extracted lines.
+    m_lead = re.match(r"^(\d{1,2}/\d{1,2})(?:/(\d{2,4}))?(?=\s|$)", s)
+    if m_lead:
+        md, yrest = m_lead.group(1), m_lead.group(2)
+        try:
+            if yrest:
+                if len(yrest) == 4:
+                    return datetime.strptime(f"{md}/{yrest}", "%m/%d/%Y").date()
+                return datetime.strptime(f"{md}/{yrest}", "%m/%d/%y").date()
+            if default_year is not None:
+                part = datetime.strptime(md, "%m/%d")
+                return date(default_year, part.month, part.day)
+        except ValueError:
+            pass
+
     s_ord = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", s, flags=re.IGNORECASE)
     tokens = s_ord.split()
 

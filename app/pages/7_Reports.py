@@ -7,6 +7,7 @@ from datetime import date, datetime
 
 import streamlit as st
 from typing import Any, Optional
+from uuid import UUID
 
 import pandas as pd
 
@@ -19,8 +20,10 @@ from data.providers import (
     balance_sheet_report,
     bank_accounts,
     chart_of_accounts,
+    coa_activity_report,
     db_ready,
     general_ledger_report,
+    journal_entries_report,
     personal_spending_report,
     profit_loss_report,
     trial_balance_gl_report,
@@ -37,10 +40,27 @@ def _bank_id_for_report_label(label: str, accounts: list[Any]) -> Optional[str]:
     return None
 
 
+def _journal_book_id_for_report_label(label: str, journal_accounts: list[Any]) -> Optional[str]:
+    if label == "All journal books":
+        return None
+    for a in journal_accounts:
+        if f"{a['account_name']} ****{a['masked']}" == label:
+            return a["id"]
+    return None
+
+
 def _normalize_period(d0, d1):
     if d0 > d1:
         return d1, d0
     return d0, d1
+
+
+def _coa_number_from_gl_range_label(label: str) -> Optional[str]:
+    """Map General Ledger range dropdown label to account number, or None for sentinels."""
+    s = (label or "").strip()
+    if not s or s.startswith("—"):
+        return None
+    return s.split(" — ", 1)[0].strip() or None
 
 
 def _default_report_period() -> tuple[date, date]:
@@ -134,6 +154,81 @@ def _gl_report_to_csv(blocks: list[dict], period_start: date) -> str:
                 ]
             )
     return buf.getvalue()
+
+
+def _journal_entries_report_csv(entries: list[dict[str, Any]]) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "Entry date",
+            "Journal book",
+            "Reference",
+            "Memo",
+            "Posting group id",
+            "Account #",
+            "Account name",
+            "Debit",
+            "Credit",
+            "Entry total debit",
+            "Entry total credit",
+        ]
+    )
+    for e in entries:
+        ed = e.get("entry_date")
+        ds = ed.isoformat() if hasattr(ed, "isoformat") else str(ed or "")
+        jbn = e.get("journal_book_name") or ""
+        ref = e.get("reference") or ""
+        memo = (e.get("memo") or "") or ""
+        gid = e.get("posting_group_id") or ""
+        td = float(e.get("total_debit") or 0)
+        tc = float(e.get("total_credit") or 0)
+        lines = e.get("lines") or []
+        for i, ln in enumerate(lines):
+            w.writerow(
+                [
+                    ds if i == 0 else "",
+                    jbn if i == 0 else "",
+                    ref if i == 0 else "",
+                    memo if i == 0 else "",
+                    gid if i == 0 else "",
+                    ln.get("coa_number") or "",
+                    ln.get("coa_name") or "",
+                    f"{float(ln.get('debit') or 0):.2f}",
+                    f"{float(ln.get('credit') or 0):.2f}",
+                    f"{td:.2f}" if i == 0 else "",
+                    f"{tc:.2f}" if i == 0 else "",
+                ]
+            )
+    return buf.getvalue()
+
+
+def _journal_lines_display_rows(lines: Any) -> list[dict[str, Any]]:
+    """Build plain float/str rows for st.dataframe (Arrow-safe; skips bad line dicts)."""
+    out: list[dict[str, Any]] = []
+    if not isinstance(lines, (list, tuple)):
+        return out
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        num = str(ln.get("coa_number") or "").strip()
+        name = str(ln.get("coa_name") or "").strip()
+        if num and name:
+            acct = f"{num} — {name}"
+        elif num or name:
+            acct = num or name
+        else:
+            acct = "—"
+        try:
+            deb = float(ln.get("debit") or 0)
+        except (TypeError, ValueError):
+            deb = 0.0
+        try:
+            crd = float(ln.get("credit") or 0)
+        except (TypeError, ValueError):
+            crd = 0.0
+        out.append({"Account": acct, "Debit": deb, "Credit": crd})
+    return out
 
 
 def _pl_report_csv(data: dict[str, Any]) -> str:
@@ -401,19 +496,34 @@ CHART_OF_ACCOUNTS = chart_of_accounts()
 st.html("<div id='reports-page-top'></div>")
 st.html("<div style='height:0.75rem'></div>")
 
-# ── Report tabs ───────────────────────────────────────────────────────────────
-tab_pl, tab_bs, tab_gl, tab_tb, tab_personal = st.tabs([
+# `st.tabs` does not keep the active tab on rerun; a keyed selectbox does (e.g. after Generate report).
+_REPORT_CHOICES: tuple[str, ...] = (
     "Profit and Loss",
     "Balance Sheet",
     "General Ledger",
+    "Activity",
     "Trial Balance",
+    "Journal entries",
     "Personal spending",
-])
+)
+c1, c2 = st.columns([1, 4], gap="medium")
+with c1:
+    st.caption("**Report**")
+with c2:
+    st.selectbox(
+        "Report",
+        options=list(_REPORT_CHOICES),
+        key="reports_nav_tab",
+        label_visibility="collapsed",
+    )
+_report_sel: str = st.session_state.get("reports_nav_tab") or _REPORT_CHOICES[0]
+
+# ── Report sections (one selected via `reports_nav_tab` selectbox) ────────────
 
 # ────────────────────────────────────────────────────────────────────────────────
 # TAB 1: Profit and Loss (from GL: income & expense COAs, period activity)
 # ────────────────────────────────────────────────────────────────────────────────
-with tab_pl:
+if _report_sel == "Profit and Loss":
     if "pl_report_snapshot" not in st.session_state:
         st.session_state.pl_report_snapshot = None
 
@@ -706,7 +816,7 @@ with tab_pl:
 # ────────────────────────────────────────────────────────────────────────────────
 # TAB 2: Balance Sheet (from GL / chart: asset, liability, equity)
 # ────────────────────────────────────────────────────────────────────────────────
-with tab_bs:
+if _report_sel == "Balance Sheet":
     if "bs_report_snapshot" not in st.session_state:
         st.session_state.bs_report_snapshot = None
 
@@ -921,7 +1031,7 @@ with tab_bs:
 # ────────────────────────────────────────────────────────────────────────────────
 # TAB 3: General Ledger (layout per GLReport_screen.png; uses app sidebar, not mock sidebar)
 # ────────────────────────────────────────────────────────────────────────────────
-with tab_gl:
+if _report_sel == "General Ledger":
     if "gl_report_snapshot" not in st.session_state:
         st.session_state.gl_report_snapshot = None
 
@@ -946,7 +1056,10 @@ with tab_gl:
 
     st.caption(
         "Set the GL period with **START DATE** and **END DATE**, filter by bank book or chart account range "
-        "(optional expander), then **GENERATE REPORT**."
+        "(optional expander), then **GENERATE REPORT**. "
+        "**Account filter** is the book each **transaction** row is posted to: a Chase register, the **Journal** book, etc. "
+        "Journal lines only appear when that filter is **All Accounts** or the journal. "
+        "The first **Opening balance** line is a calculated roll-forward, not a line from **Journal entry** or imports."
     )
     if use_sample_data():
         st.info(
@@ -959,6 +1072,21 @@ with tab_gl:
         for a in BANK_ACCOUNTS
         if a["account_type"] != "cash"
     ]
+
+    _gl_num_sorted = sorted(
+        {a["number"] for a in CHART_OF_ACCOUNTS},
+        key=lambda x: int(x) if str(x).isdigit() else 0,
+    )
+    _gl_coa_line_labels = [
+        f"{n} — {next(a['name'] for a in CHART_OF_ACCOUNTS if a['number'] == n)}"
+        for n in _gl_num_sorted
+    ]
+    gl_coa_from_options = [
+        "— No minimum (all accounts from the start) —"
+    ] + _gl_coa_line_labels
+    gl_coa_to_options = [
+        "— No maximum (all accounts to the end) —"
+    ] + _gl_coa_line_labels
 
     with st.form("gl_report_form"):
         gl_def_s, gl_def_e = _default_report_period()
@@ -989,26 +1117,30 @@ with tab_gl:
             st.html("<div style='height:0.25rem'></div>")
             gl_submit = st.form_submit_button("GENERATE REPORT", type="primary", use_container_width=True)
 
-        with st.expander("Advanced: chart account number range (optional)", expanded=False):
+        with st.expander("Advanced: chart account range (optional)", expanded=False):
+            st.caption(
+                "Limit the report to a range of **chart** accounts (by account number). "
+                "Range is lexicographic—use consistent zero-padding in your COA if needed."
+            )
             a1, a2 = st.columns(2)
             with a1:
-                gl_coa_from = st.text_input(
-                    "Account # from",
-                    placeholder="e.g. 4000",
-                    key="gl_form_coa_from",
+                gl_coa_from_pick = st.selectbox(
+                    "From account",
+                    options=gl_coa_from_options,
+                    key="gl_form_coa_from_dd",
                 )
             with a2:
-                gl_coa_to = st.text_input(
-                    "Account # to",
-                    placeholder="e.g. 4999",
-                    key="gl_form_coa_to",
+                gl_coa_to_pick = st.selectbox(
+                    "To account",
+                    options=gl_coa_to_options,
+                    key="gl_form_coa_to_dd",
                 )
 
     if gl_submit:
         gl_start, gl_end = _normalize_period(gl_d0, gl_d1)
         gl_bid = _bank_id_for_report_label(gl_bank_pick, BANK_ACCOUNTS)
-        cf = (gl_coa_from or "").strip() or None
-        ct = (gl_coa_to or "").strip() or None
+        cf = _coa_number_from_gl_range_label(gl_coa_from_pick)
+        ct = _coa_number_from_gl_range_label(gl_coa_to_pick)
         raw_rows = general_ledger_report(gl_start, gl_end, cf, ct, gl_bid)
         if gl_bank_pick == "All Accounts":
             visible = raw_rows
@@ -1178,9 +1310,286 @@ with tab_gl:
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 4: Trial Balance (GL ending balances for range, Debit/Credit columns)
+# TAB 4: Activity (all transaction lines per COA, every source)
 # ────────────────────────────────────────────────────────────────────────────────
-with tab_tb:
+def _coa_id_list_from_multiselect_labels(
+    selected: list[str], chart: list[Any]
+) -> list[str]:
+    m = {f"{a['number']} — {a['name']}": (a.get("id") or "").strip() for a in chart}
+    return [m[lb] for lb in (selected or []) if lb in m and m[lb]]
+
+
+def _activity_ledger_coa_notes(
+    coa_id_list: list[str], chart: list[dict], bank_accounts: list[dict]
+) -> str | None:
+    """
+    Explain why register manual lines may be missing for a COA: manual entry cannot
+    use the same chart line as that register’s linked Ledger (cash) account.
+    """
+
+    def _uuid_key(s: str) -> str:
+        t = (s or "").strip()
+        if not t:
+            return ""
+        try:
+            return str(UUID(t))
+        except ValueError:
+            return t
+
+    cby = {_uuid_key(c.get("id") or ""): c for c in (chart or []) if _uuid_key(c.get("id") or "")}
+    parts: list[str] = []
+    for cid in coa_id_list or []:
+        ck = _uuid_key((cid or "").strip())
+        if not ck or ck not in cby:
+            continue
+        regs: list[str] = []
+        for a in bank_accounts or []:
+            if (a.get("account_type") or "").lower() in ("journal",):
+                continue
+            if _uuid_key((a.get("ledger_coa_id") or "")) != ck:
+                continue
+            an = (a.get("account_name") or "").strip() or "Register"
+            mk = (a.get("masked") or "").strip() or "—"
+            regs.append(f"{an} ****{mk}")
+        if not regs:
+            continue
+        n = (cby[ck].get("number") or "").strip() or "—"
+        nm = (cby[ck].get("name") or "").strip() or ""
+        parts.append(
+            f"**{n} — {nm}** is the **Ledger (bank/cash) line** for {', '.join(regs)}. "
+            "A **register manual** line must classify to a **different** account than this—see **New entry**—"
+            "so the manual’s **chart line** (and `source` **manual_register**) is usually an expense, income, or "
+            "other account, not this Ledger line. **Journal entries** are not subject to that rule, so a JE can "
+            f"still list **{n}** in this report."
+        )
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
+def _activity_report_csv(rows: list[dict[str, Any]]) -> str:
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "Date",
+            "COA #",
+            "COA name",
+            "Source",
+            "Status",
+            "Register",
+            "Masked",
+            "Bank",
+            "Payee",
+            "Description",
+            "Debit",
+            "Credit",
+            "Posting group",
+            "Transaction id",
+            "Import batch",
+            "Created at",
+        ]
+    )
+    for r in rows:
+        w.writerow(
+            [
+                r.get("date") or "",
+                r.get("coa_number") or "",
+                r.get("coa_name") or "",
+                r.get("source") or "",
+                r.get("status") or "",
+                r.get("register_name") or "",
+                r.get("register_masked") or "",
+                r.get("bank_name") or "",
+                r.get("payee") or "",
+                (r.get("description") or "") or "",
+                f"{r.get('debit', 0):.2f}" if r.get("debit") else "",
+                f"{r.get('credit', 0):.2f}" if r.get("credit") else "",
+                r.get("posting_group_id") or "",
+                r.get("id") or "",
+                r.get("import_batch_id") or "",
+                (r.get("created_at") or "") if not r.get("is_opening") else "",
+            ]
+        )
+    return buf.getvalue()
+
+
+if _report_sel == "Activity":
+    st.html("""
+    <h2 style="font-family:'Manrope',sans-serif;font-size:2rem;font-weight:800;
+               letter-spacing:-0.02em;margin:0 0 0.5rem;">Activity (by chart account)</h2>
+    <p style="color:#636262;margin-bottom:1rem;max-width:48rem;">
+        Choose a <strong>date range</strong> and which <strong>chart of accounts (COA)</strong> to include.
+        The report lists <strong>every posting</strong> that hits those lines—<strong>all</strong> bank/card
+        registers, cash, and the <strong>Journal</strong> book—so nothing is missing because of a book filter.
+        Each row still shows <em>which</em> book it was posted in.
+        You get a computed <strong>opening balance</strong> (same as General Ledger, all books)
+        then <strong>period</strong> lines: imports, manual, journal, and the rest, by date.
+    </p>
+    """)
+    st.caption(
+        "Opening = trial balance (pending and confirmed) plus posted activity before the range; "
+        "period = dated activity in the range. "
+        "Lines with `source` trial_balance_opening that mirror imported TB are omitted from the period list to "
+        "match the General Ledger; their effect is in opening. "
+        "Wide **Entire chart** ranges can be large: use **Download CSV** or a narrower period for testing."
+    )
+    if use_sample_data():
+        st.info(
+            "Demo mode has no activity query. Set **USE_SAMPLE_DATA=false** in app/.env to list rows from "
+            "PostgreSQL."
+        )
+
+    ar_coa_labels = [
+        f"{a['number']} — {a['name']}"
+        for a in sorted(
+            CHART_OF_ACCOUNTS,
+            key=lambda x: (int(x["number"]) if str(x.get("number") or "").isdigit() else 0, (x.get("number") or "")),
+        )
+    ]
+
+    with st.form("activity_report_form"):
+        ar_s, ar_e = _default_report_period()
+        ar_c1, ar_c2, ar_c3 = st.columns([1.1, 1.1, 1], gap="medium")
+        with ar_c1:
+            ar_d0 = st.date_input(
+                "FROM DATE",
+                value=ar_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="ar_form_start",
+            )
+        with ar_c2:
+            ar_d1 = st.date_input(
+                "TO DATE",
+                value=ar_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="ar_form_end",
+            )
+        with ar_c3:
+            st.html("<div style='height:0.25rem'></div>")
+            ar_submit = st.form_submit_button(
+                "GENERATE REPORT", type="primary", use_container_width=True
+            )
+        ar_entire, ar_uncat = st.columns(2, gap="medium")
+        with ar_entire:
+            ar_all_chart = st.checkbox(
+                "Entire chart (all active COA lines in range)",
+                value=False,
+                help="All classified COA lines in the date range; chart multiselect below is ignored.",
+                key="ar_form_all_chart",
+            )
+        with ar_uncat:
+            ar_inc_uncat = st.checkbox(
+                "Include uncategorized (no COA on the line)",
+                value=False,
+                help="Also list lines with no chart account. Wide ranges can be large.",
+                key="ar_form_uncategorized",
+            )
+        ar_coa = st.multiselect(
+            "CHART ACCOUNTS (when not using entire chart)",
+            options=ar_coa_labels,
+            help="Every posting that classifies to any of these account lines, across all books (not a register filter).",
+            key="ar_form_coa",
+        )
+
+    if ar_submit:
+        if use_sample_data():
+            st.warning(
+                "Set **USE_SAMPLE_DATA=false** in app/.env to run the Activity report against PostgreSQL."
+            )
+        else:
+            ar_p0, ar_p1 = _normalize_period(ar_d0, ar_d1)
+            cids = _coa_id_list_from_multiselect_labels(ar_coa, CHART_OF_ACCOUNTS)
+            if not ar_all_chart and not cids:
+                st.error(
+                    "Turn on **Entire chart** or select at least one chart account. "
+                    "**Include uncategorized** adds unclassified lines in addition to that scope."
+                )
+            else:
+                act_rows = coa_activity_report(
+                    ar_p0,
+                    ar_p1,
+                    cids,
+                    all_chart_accounts=ar_all_chart,
+                    include_uncategorized=ar_inc_uncat,
+                )
+                st.markdown(
+                    f"**{len(act_rows)}** row(s) (opening + period lines) in this scope."
+                )
+                st.caption(
+                    "Dated **before** the **From** date: included in the **Opening balance** only (no line in the table). "
+                    "Expand the **From** date to see those transactions as rows."
+                )
+                _nid = (
+                    [(a.get("id") or "").strip() for a in CHART_OF_ACCOUNTS if (a.get("id") or "").strip()]
+                    if ar_all_chart
+                    else cids
+                )
+                _ledger_msg = _activity_ledger_coa_notes(_nid, CHART_OF_ACCOUNTS, BANK_ACCOUNTS)
+                if _ledger_msg:
+                    st.info(_ledger_msg)
+                if act_rows:
+                    show = []
+                    for r in act_rows:
+                        raw_desc = (r.get("description") or "")
+                        ddesc = raw_desc if r.get("is_opening") else raw_desc[:200]
+                        show.append(
+                            {
+                                "Date": r.get("date"),
+                                "COA": f"{r.get('coa_number', '')} — {r.get('coa_name', '')}",
+                                "Source": r.get("source"),
+                                "Status": (r.get("status") or "")
+                                if not r.get("is_opening")
+                                else "",
+                                "Register": r.get("register_name"),
+                                "****": r.get("register_masked"),
+                                "Type": r.get("register_type"),
+                                "Bank": r.get("bank_name"),
+                                "Payee": r.get("payee")
+                                if not r.get("is_opening")
+                                else "",
+                                "Description": ddesc,
+                                "Debit": r.get("debit")
+                                if r.get("debit")
+                                else None,
+                                "Credit": r.get("credit")
+                                if r.get("credit")
+                                else None,
+                                "Posting group": r.get("posting_group_id")
+                                or "",
+                                "Import batch": (r.get("import_batch_id") or "")
+                                if not r.get("is_opening")
+                                else "",
+                                "Created at": (r.get("created_at") or "")
+                                if not r.get("is_opening")
+                                else "",
+                            }
+                        )
+                    st.dataframe(
+                        pd.DataFrame(show),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    st.download_button(
+                        "Download CSV",
+                        data=_activity_report_csv(act_rows),
+                        file_name="activity_report.csv",
+                        mime="text/csv",
+                        key="ar_download_csv",
+                    )
+                else:
+                    st.info("No lines in this period and filters.")
+
+    st.html("<div style='height:1.5rem'></div>")
+    _render_reports_back_to_top()
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# TAB 5: Trial Balance (GL ending balances for range, Debit/Credit columns)
+# ────────────────────────────────────────────────────────────────────────────────
+if _report_sel == "Trial Balance":
     if "tb_report_snapshot" not in st.session_state:
         st.session_state.tb_report_snapshot = None
 
@@ -1357,9 +1766,171 @@ with tab_tb:
 
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TAB 5: Personal spending (owner draw / personal COAs by period)
+# TAB 6: Journal entries (manual journals by date range)
 # ────────────────────────────────────────────────────────────────────────────────
-with tab_personal:
+if _report_sel == "Journal entries":
+    if "je_report_snapshot" not in st.session_state:
+        st.session_state.je_report_snapshot = None
+
+    journal_books = [
+        a
+        for a in BANK_ACCOUNTS
+        if (a.get("account_type") or "").strip().lower() == "journal"
+    ]
+    journal_books.sort(key=lambda x: (x.get("account_name") or "").lower())
+    je_book_options = ["All journal books"] + [
+        f"{a['account_name']} ****{a['masked']}" for a in journal_books
+    ]
+
+    st.html("""
+    <p style="color:#154212;font-size:0.65rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:0.15em;margin-bottom:0.5rem;">Register</p>
+    <h2 style="font-family:'Manrope',sans-serif;font-size:2.5rem;font-weight:800;
+               letter-spacing:-0.03em;margin:0 0 0.5rem;">Journal entries</h2>
+    <p style="color:#636262;font-style:italic;margin-bottom:1rem;">
+        Manual journal postings grouped by entry (reference and lines). Filter by date and optional journal book.
+    </p>
+    """)
+
+    with st.form("je_report_form"):
+        je_def_s, je_def_e = _default_report_period()
+        jf1, jf2, jf3, jf4 = st.columns([1.1, 1.1, 2.2, 1], gap="medium")
+        with jf1:
+            je_d0 = st.date_input(
+                "FROM DATE",
+                value=je_def_s,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="je_form_start",
+            )
+        with jf2:
+            je_d1 = st.date_input(
+                "TO DATE",
+                value=je_def_e,
+                min_value=date(2020, 1, 1),
+                max_value=date(2035, 12, 31),
+                key="je_form_end",
+            )
+        with jf3:
+            je_book_pick = st.selectbox(
+                "JOURNAL BOOK",
+                options=je_book_options,
+                key="je_form_book",
+                disabled=len(je_book_options) <= 1,
+            )
+        with jf4:
+            st.html("<div style='height:0.25rem'></div>")
+            je_submit = st.form_submit_button(
+                "GENERATE REPORT", type="primary", use_container_width=True
+            )
+
+    if use_sample_data():
+        st.info(
+            "Demo mode has no manual journal entries. Set **USE_SAMPLE_DATA=false** to "
+            "see journals from PostgreSQL."
+        )
+    elif not journal_books:
+        st.info(
+            "No **Journal** register yet. Add one under **Bank & card accounts**, then post "
+            "entries from **New entry**."
+        )
+
+    if je_submit and not use_sample_data():
+        je_start, je_end = _normalize_period(je_d0, je_d1)
+        je_bid = _journal_book_id_for_report_label(je_book_pick, journal_books)
+        entries = journal_entries_report(je_start, je_end, je_bid)
+        st.session_state.je_report_snapshot = {
+            "entries": entries,
+            "period_start": je_start,
+            "period_end": je_end,
+            "book_label": je_book_pick,
+        }
+
+    je_snap = st.session_state.je_report_snapshot
+
+    if use_sample_data():
+        pass
+    elif je_snap is None:
+        st.caption(
+            "Choose **from** and **to** dates and an optional journal book, then click **GENERATE REPORT**."
+        )
+    else:
+        ps, pe = je_snap["period_start"], je_snap["period_end"]
+        ph = html.escape(format_period_header(ps, pe))
+        bl = html.escape(str(je_snap["book_label"]))
+        entries = je_snap["entries"] or []
+
+        col_dl, _ = st.columns([1, 4])
+        with col_dl:
+            st.download_button(
+                label="Download CSV",
+                data=_journal_entries_report_csv(entries),
+                file_name="journal_entries_report.csv",
+                mime="text/csv",
+                key="je_download_csv",
+                type="primary",
+                use_container_width=True,
+            )
+
+        st.markdown(f"**Period:** {ph}  \n**Journal book:** {bl}")
+
+        if not entries:
+            st.info("No journal entries in this period for the selected book.")
+        else:
+            st.caption(f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}")
+            for je_i, e in enumerate(entries):
+                ed = e.get("entry_date")
+                ds = (
+                    ed.strftime("%b %d, %Y")
+                    if hasattr(ed, "strftime")
+                    else str(ed or "")
+                )
+                ref_raw = e.get("reference")
+                ref = (
+                    str(ref_raw).strip()
+                    if ref_raw is not None
+                    else ""
+                ) or "(no reference)"
+                # Unique label per row (Streamlit expander identity + duplicate refs on same day)
+                exp_title = f"Entry {je_i + 1}: {ds} — {ref}"
+                with st.expander(exp_title, expanded=False):
+                    memo = e.get("memo")
+                    if memo:
+                        st.caption(str(memo))
+                    st.caption(
+                        f"Book: {e.get('journal_book_name') or '—'} · "
+                        f"Posting group: {e.get('posting_group_id') or '—'}"
+                    )
+                    line_rows = _journal_lines_display_rows(e.get("lines"))
+                    if not line_rows:
+                        st.caption("No line detail for this entry.")
+                    else:
+                        display_rows = [
+                            {
+                                "Account": str(r["Account"]),
+                                "Debit": float(r["Debit"]),
+                                "Credit": float(r["Credit"]),
+                            }
+                            for r in line_rows
+                        ]
+                        st.dataframe(
+                            display_rows,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    td, tc = float(e.get("total_debit") or 0), float(
+                        e.get("total_credit") or 0
+                    )
+                    st.caption(f"Totals — Debit ${td:,.2f} · Credit ${tc:,.2f}")
+
+    st.html("<div style='height:1.5rem'></div>")
+    _render_reports_back_to_top()
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# TAB 7: Personal spending (owner draw / personal COAs by period)
+# ────────────────────────────────────────────────────────────────────────────────
+if _report_sel == "Personal spending":
     if "personal_report_snapshot" not in st.session_state:
         st.session_state.personal_report_snapshot = None
 
