@@ -1,0 +1,19 @@
+# Moth and Money V4 — run locally (macOS / zsh)
+
+# From the project folder (the one that contains the `app/` directory):
+
+# Activate the virtual environment (run this in every new terminal session):
+source app/.venv/bin/activate
+
+# Run the Streamlit app:
+streamlit run app/app.py
+# Or double-click launch.command (macOS) or ./launch.sh — see launch.html for steps.
+
+sqlite3 moth_and_money.db ".tables"
+
+What it does: Runs a one-line Python command directly in the terminal. If it prints a version number (like 2.0.49), SQLAlchemy is installed and importable. If it errors, something went wrong with the install.
+python -c "import sqlalchemy; print(sqlalchemy.__version__)"
+
+What it does: The -m flag tells Python "run this file as a module." Python finds database/bootstrap.py, executes it, which calls initialize_database_schema(), which reads schema.sql and creates the three tables inside moth_and_money.db. The .db file appears in your project root.
+do not use - informational one_side_only
+python -m database.bootstrap

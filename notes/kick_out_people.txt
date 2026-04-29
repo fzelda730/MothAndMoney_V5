@@ -1,0 +1,11 @@
+-- 1. Force disconnect all other users from the database
+SELECT pg_terminate_backend(pg_stat_activity.pid)
+FROM pg_stat_activity
+WHERE pg_stat_activity.datname = 'moth_and_money'
+  AND pid <> pg_backend_pid();
+
+-- 2. Now you can safely drop it
+DROP DATABASE moth_and_money;
+
+-- 3. Create the fresh V5 Foundation
+CREATE DATABASE moth_and_money;

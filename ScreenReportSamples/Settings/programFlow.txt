@@ -1,0 +1,20 @@
+/moth_and_money_v5
+│
+├── .cursorrules          <-- THE CONSTITUTION: Standardizes Artie's naming.
+├── app.py                <-- THE DIRECTOR: Main Streamlit entry point.
+│
+├── /database             <-- THE VAULT: All SQL and Connection logic.
+│   ├── connection.py
+│   └── schema.sql
+│
+├── /logic                <-- THE BRAIN: Pure Python math (No UI code here).
+│   ├── accounting.py        <-- P&L, Balance Sheet, and Trial Balance math.
+│   ├── processors.py        <-- PDF and CSV cleaning logic.
+│   └── formatters.py        <-- Currency and date formatting.
+│
+├── /ui                   <-- THE FACE: Streamlit visual components.
+│   ├── /pages               <-- Individual report screens.
+│   ├── elements.py          <-- Custom buttons, stat cards, and "Old Money" CSS.
+│   └── sidebar.py
+│
+└── ARCHITECTURE.md       <-- THE MAP: Your human-readable guide.
