@@ -50,13 +50,66 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
                             REFERENCES chart_of_accounts(account_number),
     debit_amount        NUMERIC(15,2) NOT NULL DEFAULT 0.00,
     credit_amount       NUMERIC(15,2) NOT NULL DEFAULT 0.00,
+    payee               TEXT    NOT NULL DEFAULT '',   -- Counterparty / description at line level
+    reference           TEXT    NOT NULL DEFAULT '',   -- Bank memo, check number, or transaction id
 
     -- Audit Integrity: a line cannot carry both a debit and a credit simultaneously.
     CONSTRAINT one_side_only CHECK (
         NOT (debit_amount > 0 AND credit_amount > 0)
-    ),
-    -- Audit Integrity: a line must carry at least one non-zero value.
-    CONSTRAINT not_both_zero CHECK (
-        debit_amount > 0 OR credit_amount > 0
     )
+    -- Opening Trial Balance may include explicit zero / zero lines so every CSV
+    -- row has a ledger line matching the chart row (solopreneur TB parity).
 );
+
+-- -----------------------------------------------------------------------------
+-- TABLE 4: BANK TEMPLATES — CSV column maps + built-in ingest registry
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bank_templates (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                    TEXT    NOT NULL UNIQUE,
+    linked_account_number   INTEGER
+                                REFERENCES chart_of_accounts(account_number),
+    date_col                TEXT    NOT NULL DEFAULT '',
+    payee_col               TEXT    NOT NULL DEFAULT '',
+    amount_col              TEXT    NOT NULL DEFAULT '',
+    reference_col           TEXT    NOT NULL DEFAULT '',
+    is_liability            INTEGER NOT NULL DEFAULT 0
+                                CHECK (is_liability IN (0, 1)),
+    ingest_kind             TEXT    NOT NULL DEFAULT 'csv_headers'
+                                CHECK (ingest_kind IN ('csv_headers', 'built_in_pdf')),
+    built_in_parser_key     TEXT,
+    created_at              TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_templates_ingest_kind
+    ON bank_templates (ingest_kind);
+
+-- -----------------------------------------------------------------------------
+-- TABLE 5: BANK TEMPLATE CHART LINKS — optional short list for Statement Upload
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bank_template_chart_links (
+    bank_template_id    INTEGER NOT NULL
+                            REFERENCES bank_templates(id)
+                            ON DELETE CASCADE,
+    account_number      INTEGER NOT NULL
+                            REFERENCES chart_of_accounts(account_number),
+    PRIMARY KEY (bank_template_id, account_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_template_chart_links_template
+    ON bank_template_chart_links (bank_template_id);
+
+-- -----------------------------------------------------------------------------
+-- TABLE 6: PAYEE CHART ACCOUNT MAPPINGS — remembered offset accounts
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payee_chart_account_mappings (
+    payee_normalized_key    TEXT    NOT NULL,
+    account_number          INTEGER NOT NULL
+                                REFERENCES chart_of_accounts(account_number),
+    created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (payee_normalized_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payee_chart_account_mappings_account
+    ON payee_chart_account_mappings (account_number);

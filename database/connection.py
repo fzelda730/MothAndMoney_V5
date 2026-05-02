@@ -24,6 +24,29 @@ _SQLITE_DATABASE_FILE_PATH = _PROJECT_ROOT_DIRECTORY / "moth_and_money.db"
 _shared_database_engine: Engine | None = None
 
 
+def get_sqlite_database_file_path() -> Path:
+    """
+    Formal:  Returns the absolute path to moth_and_money.db under the
+             project root used by this installation.
+    Human:   One shared answer to “where is my ledger file?” — including
+             for reset scripts that must delete or recreate that file.
+    """
+    return _SQLITE_DATABASE_FILE_PATH
+
+
+def dispose_shared_database_engine() -> None:
+    """
+    Formal:  Disposes and clears the cached SQLAlchemy engine so a new
+             SQLite file path or recreated file can be opened cleanly.
+    Human:   Call this after wiping the database file so Streamlit does
+             not keep stale connections to a file that no longer exists.
+    """
+    global _shared_database_engine
+    if _shared_database_engine is not None:
+        _shared_database_engine.dispose()
+        _shared_database_engine = None
+
+
 def get_database_engine() -> Engine:
     """
     Formal:  Returns the singleton SQLAlchemy engine bound to moth_and_money.db,

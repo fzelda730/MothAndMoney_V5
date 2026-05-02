@@ -28,6 +28,12 @@ app/exports/**
 # Local real-world sample statements / exports (keep out of git)
 Samples/
 
+# Local ledger file (solopreneur machine); do not push live balances
+moth_and_money.db
+
+# Installer binaries
+*.dmg
+
 # OS
 .DS_Store
 Thumbs.db

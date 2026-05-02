@@ -56,3 +56,11 @@ Local-First Architecture: All code must assume a single-user, local SQLite envir
 No Multi-User Overhead: Avoid building complex login systems or permission roles. The app should launch directly into the owner's dashboard.
 
 The "Director's" View: Every report should lead with a "Plain English" insight (e.g., "You have enough cash in your 'Relay' fortress to cover your SBA loan for 6 months").
+
+## IV. PRODUCT VISION & SCALABILITY
+* **Target Audience:** Single-user (Solopreneur), Multi-bank, Multi-credit card.
+* **Commercial Intent:** Designed for resale/distribution. 
+* **Portability:** * NO hard-coded local file paths (e.g., /Users/cathlene/...). Use relative paths or `Path.home()`.
+    * NO hard-coded bank names in core logic. Use dynamic mapping and the `bank_formats` table.
+* **User Empowerment:** Build "Self-Service" UI components (Mappers/Initializers) so users can set up their own forge without developer intervention.
+* **Audit Integrity:** Every automated ingest must have a human "Review & Post" step to satisfy Rule 5.
